@@ -22,6 +22,11 @@
   --transition-fast: 0.15s ease-in-out;
 }
 
+/* Task 2: Zoom out base font size so more content is visible */
+html {
+  font-size: 87.5%; /* 14px effective base — zooms out ~12.5% */
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -47,53 +52,54 @@ h1, h2, h3, h4 {
   letter-spacing: -0.01em;
 }
 
-/* Layout System: Fluid 3-Column Edge-to-Edge */
+/* Layout System: Full-width edge-to-edge 3-column */
 .app-wrapper {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start; /* Task 2: flush to edges */
   min-height: 100vh;
   width: 100%;
 }
 
 .layout-container {
   display: flex;
-  width: 100%;
-  max-width: 1440px; /* Widened for spaciousness */
+  width: 100%; /* Task 2: full width, no centering cap */
   align-items: flex-start;
 }
 
 /* Left Navigation */
 .nav-sidebar {
-  width: 275px; 
+  width: 240px; /* Task 2: slightly narrower to reclaim space */
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 16px 24px;
+  padding: 12px 16px;
   border-right: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 /* Right Sidebar (Trends/Controls) */
 .right-sidebar {
-  flex: 1; /* Fluid width, takes remaining space */
-  max-width: 400px;
-  min-width: 300px;
+  width: 300px;
+  min-width: 260px;
+  max-width: 320px;
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 16px 32px; /* Increased padding */
+  padding: 12px 20px;
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 24px; /* Increased gap */
+  gap: 16px;
+  flex-shrink: 0;
+  overflow-y: auto;
 }
 
-/* Center Feed - Widened */
+/* Center Feed - Expands to fill remaining space */
 .main-feed {
-  flex: 2; /* Takes up 2 parts of fluid layout */
-  max-width: 750px; /* Widened from 600px to remove narrowness */
-  min-width: 500px;
+  flex: 1; /* Task 2: fills all remaining space between sidebars */
+  min-width: 0;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -109,37 +115,52 @@ h1, h2, h3, h4 {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   z-index: 50;
-  padding: 16px 20px; /* Increased padding */
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
 }
 
 .composer-box {
-  padding: 20px; /* Increased padding */
+  padding: 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
-  gap: 16px;
+  gap: 12px;
 }
 
+/* Task 4: Post cards inside rounded containers — no border-bottom on card itself */
 .post-card {
-  padding: 20px; /* Increased padding to breathe */
-  border-bottom: 1px solid var(--border);
+  padding: 16px;
   display: flex;
-  gap: 16px; /* Increased gap */
+  gap: 12px;
   transition: background-color var(--transition-fast);
   cursor: pointer;
+  border-radius: 0; /* Cards inside containers inherit parent rounding */
 }
 
 .post-card:hover {
   background-color: var(--surface-hover);
 }
 
+/* Task 4: Rounded container wrapping each post thread */
+.post-container {
+  margin: 8px 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  transition: border-color var(--transition-fast);
+}
+
+.post-container:hover {
+  border-color: var(--border-bright);
+}
+
 .post-avatar-col {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 48px;
+  width: 44px;
   flex-shrink: 0;
 }
 
@@ -158,14 +179,15 @@ h1, h2, h3, h4 {
   border-radius: 2px;
 }
 
+/* Task 5: Uniform nav-link active bubble — fixed padding ensures same pill size */
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 20px; /* Increased gap */
-  padding: 16px; /* Increased padding */
+  gap: 16px;
+  padding: 10px 14px; /* Task 5: uniform padding for consistent pill size */
   border-radius: 9999px;
   color: var(--text-primary);
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 500;
   text-decoration: none;
   transition: background-color var(--transition-fast);
@@ -173,10 +195,17 @@ h1, h2, h3, h4 {
   cursor: pointer;
   border: none;
   background: transparent;
+  white-space: nowrap; /* Task 5: prevent text wrapping which would change bubble size */
 }
 
 .nav-link:hover {
   background-color: var(--surface-hover);
+}
+
+/* Task 5: Active state explicitly styled so bubble is always same size */
+.nav-link.active {
+  background-color: var(--surface-hover);
+  font-weight: 800;
 }
 
 .btn-primary {
@@ -187,9 +216,9 @@ h1, h2, h3, h4 {
   font-weight: 700;
   font-family: inherit;
   font-size: 1rem;
-  padding: 14px 24px;
+  padding: 12px 22px;
   cursor: pointer;
-  transform: translateZ(0); /* Hardware acceleration for zero lag */
+  transform: translateZ(0);
   transition: transform 0.1s, opacity var(--transition-fast);
   text-align: center;
   will-change: transform;
@@ -215,7 +244,7 @@ input[type="text"], textarea {
   border: none;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 1.2rem; /* Larger typing text */
+  font-size: 1.1rem;
   outline: none;
   width: 100%;
   resize: none;
@@ -250,7 +279,7 @@ input[type="range"]::-webkit-slider-thumb {
   background-color: var(--surface);
   border-radius: 16px;
   border: 1px solid var(--border);
-  padding: 20px; /* Increased padding */
+  padding: 16px;
 }
 
 .action-btn {
@@ -259,7 +288,7 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 0.9rem;
   cursor: pointer;
   transition: color var(--transition-fast);
@@ -277,8 +306,8 @@ input[type="range"]::-webkit-slider-thumb {
 /* Responsive Utilities */
 @media (max-width: 1280px) {
   .right-sidebar {
-    width: 320px;
-    min-width: 300px;
+    width: 280px;
+    min-width: 240px;
   }
 }
 
@@ -297,12 +326,15 @@ input[type="range"]::-webkit-slider-thumb {
     border-left: none;
     border-right: none;
     max-width: 100%;
-    /* Added generous padding-bottom to prevent the fixed mobile nav from cutting off content */
     padding-bottom: 80px; 
   }
 
   .mobile-nav {
     display: flex;
+  }
+
+  .post-container {
+    margin: 6px 8px;
   }
 }
 
@@ -322,8 +354,8 @@ input[type="range"]::-webkit-slider-thumb {
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: space-around;
-  padding: 12px 0;
-  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  padding: 10px 0;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
   z-index: 100;
 }
 
@@ -336,8 +368,41 @@ input[type="range"]::-webkit-slider-thumb {
   animation: fadeIn 0.3s ease forwards;
 }
 
-/* Visibility fix for threaded replies to ensure text isn't cut off */
+/* Threaded replies container — no extra indentation */
 .threaded-replies-container {
-    padding-left: 0; 
-    margin-left: 0;
+  padding-left: 0; 
+  margin-left: 0;
+}
+
+/* Task 6: Search input container */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  padding: 10px 16px;
+  transition: border-color var(--transition-fast);
+}
+
+.search-box:focus-within {
+  border-color: var(--accent-cyan);
+  background: var(--bg-dark);
+}
+
+.search-box input {
+  font-size: 0.95rem;
+}
+
+/* Trending topic category badge */
+.topic-category {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(29, 155, 240, 0.15);
+  color: var(--accent-cyan);
+  margin-top: 2px;
 }
