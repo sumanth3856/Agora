@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#d946ef"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#d946ef" stop-opacity="0.3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer sphere ring -->
+  <circle cx="32" cy="32" r="28" stroke="url(#g1)" stroke-width="1.5" fill="none" opacity="0.4"/>
+
+  <!-- Equatorial ellipse (latitude) -->
+  <ellipse cx="32" cy="32" rx="28" ry="10" stroke="url(#g1)" stroke-width="1" fill="none" opacity="0.3"/>
+
+  <!-- Meridian ellipse (longitude) -->
+  <ellipse cx="32" cy="32" rx="10" ry="28" stroke="url(#g1)" stroke-width="1" fill="none" opacity="0.3"/>
+
+  <!-- Network nodes -->
+  <circle cx="32" cy="6"  r="3" fill="url(#g1)"/>
+  <circle cx="56" cy="24" r="2.5" fill="url(#g1)" opacity="0.85"/>
+  <circle cx="52" cy="50" r="2.5" fill="url(#g1)" opacity="0.85"/>
+  <circle cx="32" cy="58" r="3" fill="url(#g1)"/>
+  <circle cx="12" cy="50" r="2.5" fill="url(#g1)" opacity="0.85"/>
+  <circle cx="8"  cy="24" r="2.5" fill="url(#g1)" opacity="0.85"/>
+  <!-- Inner nodes -->
+  <circle cx="32" cy="20" r="2" fill="url(#g1)" opacity="0.7"/>
+  <circle cx="46" cy="32" r="2" fill="url(#g1)" opacity="0.7"/>
+  <circle cx="32" cy="44" r="2" fill="url(#g1)" opacity="0.7"/>
+  <circle cx="18" cy="32" r="2" fill="url(#g1)" opacity="0.7"/>
+  <!-- Center node -->
+  <circle cx="32" cy="32" r="3.5" fill="url(#g1)"/>
+
+  <!-- Connection lines between nodes -->
+  <line x1="32" y1="6"  x2="56" y2="24" stroke="url(#g1)" stroke-width="0.8" opacity="0.4"/>
+  <line x1="56" y1="24" x2="52" y2="50" stroke="url(#g1)" stroke-width="0.8" opacity="0.4"/>
+  <line x1="52" y1="50" x2="32" y2="58" stroke="url(#g1)" stroke-width="0.8" opacity="0.4"/>
+  <line x1="32" y1="58" x2="12" y2="50" stroke="url(#g1)" stroke-width="0.8" opacity="0.4"/>
+  <line x1="12" y1="50" x2="8"  y2="24" stroke="url(#g1)" stroke-width="0.8" opacity="0.4"/>
+  <line x1="8"  y1="24" x2="32" y2="6"  stroke="url(#g1)" stroke-width="0.8" opacity="0.4"/>
+  <!-- Inner connections to center -->
+  <line x1="32" y1="32" x2="32" y2="20" stroke="url(#g1)" stroke-width="0.8" opacity="0.5"/>
+  <line x1="32" y1="32" x2="46" y2="32" stroke="url(#g1)" stroke-width="0.8" opacity="0.5"/>
+  <line x1="32" y1="32" x2="32" y2="44" stroke="url(#g1)" stroke-width="0.8" opacity="0.5"/>
+  <line x1="32" y1="32" x2="18" y2="32" stroke="url(#g1)" stroke-width="0.8" opacity="0.5"/>
+  <!-- Outer to inner connections -->
+  <line x1="32" y1="6"  x2="32" y2="20" stroke="url(#g1)" stroke-width="0.6" opacity="0.3"/>
+  <line x1="56" y1="24" x2="46" y2="32" stroke="url(#g1)" stroke-width="0.6" opacity="0.3"/>
+  <line x1="52" y1="50" x2="32" y2="44" stroke="url(#g1)" stroke-width="0.6" opacity="0.3"/>
+  <line x1="8"  y1="24" x2="18" y2="32" stroke="url(#g1)" stroke-width="0.6" opacity="0.3"/>
+</svg>

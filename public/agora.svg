@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f0f14"/>
+      <stop offset="100%" stop-color="#1a1a2e"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#d946ef"/>
+    </linearGradient>
+    <linearGradient id="brand2" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#d946ef" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Dark rounded background (like Supabase) -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+
+  <!-- === AGORA ICON: Bold Greek arch / gateway === -->
+
+  <!-- Central arch — thick filled arch representing the agora gateway -->
+  <!-- Arch top (filled semicircle ring) -->
+  <path d="M 16 38 A 16 16 0 0 1 48 38" stroke="url(#brand)" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Left column -->
+  <rect x="14" y="37" width="6" height="14" rx="2" fill="url(#brand)"/>
+
+  <!-- Right column -->
+  <rect x="44" y="37" width="6" height="14" rx="2" fill="url(#brand)"/>
+
+  <!-- Base / step platform -->
+  <rect x="11" y="50" width="42" height="4.5" rx="2" fill="url(#brand)"/>
+
+  <!-- Inner arch detail — small dot cluster representing people/dialogue -->
+  <circle cx="32" cy="29" r="2.5" fill="url(#brand2)"/>
+  <circle cx="26" cy="33" r="1.8" fill="url(#brand2)" opacity="0.8"/>
+  <circle cx="38" cy="33" r="1.8" fill="url(#brand2)" opacity="0.8"/>
+
+  <!-- Subtle glow ring around inner dots -->
+  <circle cx="32" cy="31" r="7" stroke="url(#brand)" stroke-width="0.5" fill="none" opacity="0.3"/>
+</svg>
