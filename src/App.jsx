@@ -379,12 +379,12 @@ function App() {
             
             {renderedFeedList}
 
-            <div style={{ height: '30vh' }}></div> {/* Bottom padding */}
+            <div style={{ paddingBottom: '120px', height: '30vh' }}></div> {/* Guaranteed bottom clearance for mobile nav */}
           </div>
         </main>
 
         {/* Settings Tab */}
-        <main className="main-feed" style={{ display: activeTab === 'settings' ? 'flex' : 'none', borderRight: '1px solid var(--border)' }}>
+        <main className="main-feed" style={{ display: activeTab === 'settings' ? 'flex' : 'none', borderRight: 'none', maxWidth: window.innerWidth > 768 ? '1000px' : '100%' }}>
            <header className="feed-header">
              <h2 style={{ fontSize: '1.35rem', fontWeight: 800 }}>System Settings</h2>
            </header>
@@ -433,7 +433,7 @@ function App() {
                 </div>
               </section>
 
-              <section style={{ marginTop: '32px', borderTop: '1px solid var(--border)', paddingTop: '32px' }}>
+              <section style={{ marginTop: '32px', borderTop: '1px solid var(--border)', paddingTop: '32px', paddingBottom: '80px' }}>
                 <h3 style={{ fontSize: '1.4rem', color: 'var(--accent-rose)', fontWeight: 800, marginBottom: '16px' }}>Danger Zone</h3>
                 <button 
                   onClick={() => confirm("Wipe the entire network and delete all cloud data?") && clearSimulation()} 
@@ -446,7 +446,7 @@ function App() {
         </main>
 
         {/* Right Sidebar: Trends (Replaced Controls) */}
-        <aside className="right-sidebar">
+        <aside className="right-sidebar" style={{ display: activeTab === 'settings' ? 'none' : '' }}>
            
            <div className="sidebar-card" style={{ padding: '16px 24px', borderRadius: '9999px', display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--surface)' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
