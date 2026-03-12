@@ -14,6 +14,10 @@ export const BOT_PERSONAS = [
     color: '#06b6d4',
     baseLikelihoodToPost: 0.1,
     baseLikelihoodToReply: 0.3,
+    // Intelligence parameters
+    engagementThreshold: 0.65,   // Fires up quickly on social issues
+    likelihoodToLike: 0.75,      // Expressive with likes
+    likelihoodToShare: 0.5,      // Shares content that aligns with movement
   },
   {
     id: 'bot_2',
@@ -22,6 +26,9 @@ export const BOT_PERSONAS = [
     color: '#f59e0b',
     baseLikelihoodToPost: 0.07,
     baseLikelihoodToReply: 0.35,
+    engagementThreshold: 0.75,   // Selective — not reactive
+    likelihoodToLike: 0.4,       // Reserved with approval
+    likelihoodToShare: 0.3,      // Rarely amplifies, prefers direct debate
   },
   {
     id: 'bot_3',
@@ -30,6 +37,9 @@ export const BOT_PERSONAS = [
     color: '#f43f5e',
     baseLikelihoodToPost: 0.12,
     baseLikelihoodToReply: 0.2,
+    engagementThreshold: 0.8,    // High bar — mostly doom-agrees with bleak posts
+    likelihoodToLike: 0.5,       // Passively likes doom-adjacent content
+    likelihoodToShare: 0.2,      // Rarely bothers — "what's the point"
   },
   {
     id: 'bot_4',
@@ -38,6 +48,9 @@ export const BOT_PERSONAS = [
     color: '#d946ef',
     baseLikelihoodToPost: 0.15,
     baseLikelihoodToReply: 0.15,
+    engagementThreshold: 0.6,    // Easily triggered — loves to disagree
+    likelihoodToLike: 0.25,      // Rarely likes — contrarian by nature
+    likelihoodToShare: 0.4,      // Shares things to dunk on them
   },
   {
     id: 'bot_5',
@@ -46,6 +59,9 @@ export const BOT_PERSONAS = [
     color: '#10b981',
     baseLikelihoodToPost: 0.09,
     baseLikelihoodToReply: 0.4,
+    engagementThreshold: 0.6,    // Warm, engaged — low barrier to connect
+    likelihoodToLike: 0.85,      // Very generous with likes
+    likelihoodToShare: 0.6,      // Shares empathetic and humanist content
   },
   {
     id: 'bot_6',
@@ -54,6 +70,9 @@ export const BOT_PERSONAS = [
     color: '#a78bfa',
     baseLikelihoodToPost: 0.1,
     baseLikelihoodToReply: 0.25,
+    engagementThreshold: 0.85,   // Very high bar — only engages when highly confident
+    likelihoodToLike: 0.55,      // Measured approval
+    likelihoodToShare: 0.35,     // Only shares when data-backed
   },
 ];
 
