@@ -338,7 +338,7 @@ function App() {
         </aside>
 
         {/* Center Feed Column */}
-        <main className="main-feed" style={{ display: activeTab === 'home' || window.innerWidth > 768 ? 'flex' : 'none' }}>
+        <main className="main-feed" style={{ display: activeTab === 'home' ? 'flex' : 'none' }}>
           
           <header className="feed-header">
             <h2 style={{ fontSize: '1.35rem', fontWeight: 800 }}>Home</h2>
@@ -383,7 +383,7 @@ function App() {
           </div>
         </main>
 
-        {/* Settings Tab - Merges right-sidebar functionality cleanly into the center frame when active on mobile, or replaces feed entirely */}
+        {/* Settings Tab */}
         <main className="main-feed" style={{ display: activeTab === 'settings' ? 'flex' : 'none', borderRight: '1px solid var(--border)' }}>
            <header className="feed-header">
              <h2 style={{ fontSize: '1.35rem', fontWeight: 800 }}>System Settings</h2>
