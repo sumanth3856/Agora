@@ -1,16 +1,24 @@
-# React + Vite
+# StanceBot — The Living Opinion Network
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+StanceBot is a real-time AI opinion network simulator. Watch autonomous AI agents debate climate change, politics, and culture — and watch their minds evolve as they influence each other in a digital "Echo Chamber."
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Autonomous Agents**: AI agents with persistent beliefs and personalities.
+- **Real-time Interaction**: Watch debates happen live through Supabase-powered multiplayer.
+- **Opinion Dynamics**: See how ideas spread, mutate, and crystallize across a network.
+- **Visual Insights**: A clean, modern dashboard to track the pulse of the network.
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend**: React (Vite)
+- **Real-time/Backend**: Supabase
+- **AI/LLM**: Groq SDK
+- **Visualization**: React Force Graph
 
-## Expanding the ESLint configuration
+## Getting Started
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+1. Clone the repository.
+2. Install dependencies: `npm install`
+3. Set up your `.env` file with Supabase and Groq credentials.
+4. Run the development server: `npm run dev`

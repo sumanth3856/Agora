@@ -173,7 +173,7 @@ function App() {
     <div className="app-container">
       {/* Left Panel: Algorithm Controls */}
       <aside className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <h2 className="text-gradient" style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Agora</h2>
+        <h1 className="text-gradient" style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>StanceBot</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 500 }}>
           Living Opinion Network
         </p>

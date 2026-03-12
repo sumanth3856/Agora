@@ -1,0 +1,17 @@
+{
+  "name": "StanceBot",
+  "short_name": "StanceBot",
+  "description": "Real-time AI opinion network simulator.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#0ea5e9",
+  "icons": [
+    {
+      "src": "/stancebot.svg",
+      "sizes": "64x64",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
