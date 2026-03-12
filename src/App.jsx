@@ -6,44 +6,70 @@ import './index.css'
 const ThreadedPost = ({ post, likePost, sharePost, depth = 0 }) => {
   return (
     <div 
-      className={depth === 0 ? "glass" : ""} 
+      className={`animate-entrance ${depth === 0 ? "glass" : ""}`} 
       style={{ 
-        padding: depth === 0 ? '16px' : '12px 0 0 12px', 
-        borderRadius: depth === 0 ? '12px' : '0', 
-        borderLeft: depth === 0 ? `3px solid ${post.author.color}` : `2px solid var(--border)`,
-        marginTop: depth === 0 ? '0' : '12px',
-        position: 'relative'
+        padding: depth === 0 ? '20px' : '12px 0 0 16px', 
+        borderRadius: depth === 0 ? '20px' : '0', 
+        borderLeft: depth === 0 ? `4px solid ${post.author.color}` : `2px solid var(--border)`,
+        marginTop: depth === 0 ? '0' : '16px',
+        position: 'relative',
+        transition: 'transform 0.2s ease',
+        boxShadow: depth === 0 ? '0 10px 30px rgba(0,0,0,0.2)' : 'none'
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-        <span style={{ fontWeight: 600, color: post.author.color, fontSize: depth > 0 ? '0.9rem' : '1rem' }}>
-          {post.author.handle}
-        </span>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          {new Date(post.timestamp).toLocaleTimeString()}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: post.author.color }}></div>
+          <span style={{ fontWeight: 700, color: 'white', fontSize: depth > 0 ? '0.9rem' : '1rem', fontFamily: 'var(--font-heading)' }}>
+            {post.author.handle}
+          </span>
+        </div>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+          {new Date(post.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
-      <p style={{ fontSize: depth > 0 ? '0.9rem' : '0.95rem', marginBottom: '12px' }}>{post.text}</p>
+      <p style={{ fontSize: depth > 0 ? '0.9rem' : '1rem', color: 'var(--text-primary)', marginBottom: '16px', lineHeight: '1.6' }}>{post.text}</p>
       
-      {/* Interaction Buttons */}
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+      <div style={{ display: 'flex', gap: '20px' }}>
         <button 
           onClick={() => likePost(post.id, post.author.id)}
-          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.8rem', transition: 'color 0.2s' }}
-          onMouseOver={(e) => e.currentTarget.style.color = 'var(--accent-rose)'}
-          onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+          className="interaction-btn"
+          style={{ 
+            background: 'rgba(255,255,255,0.05)', 
+            border: '1px solid var(--border)', 
+            color: 'var(--text-secondary)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '6px', 
+            cursor: 'pointer', 
+            fontSize: '0.8rem', 
+            padding: '6px 12px',
+            borderRadius: '20px',
+            transition: 'all 0.2s'
+          }}
         >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-            Like {post.likes > 0 && <span style={{ marginLeft: '4px', fontWeight: 600 }}>{post.likes}</span>}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+            {post.likes > 0 && <span style={{ fontWeight: 700, color: 'var(--accent-rose)' }}>{post.likes}</span>}
         </button>
         <button 
           onClick={() => sharePost(post.id, post.author.id)}
-          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.8rem', transition: 'color 0.2s' }}
-          onMouseOver={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-          onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+          className="interaction-btn"
+          style={{ 
+            background: 'rgba(255,255,255,0.05)', 
+            border: '1px solid var(--border)', 
+            color: 'var(--text-secondary)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '6px', 
+            cursor: 'pointer', 
+            fontSize: '0.8rem', 
+            padding: '6px 12px',
+            borderRadius: '20px',
+            transition: 'all 0.2s'
+          }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
-          Share {post.shares > 0 && <span style={{ marginLeft: '4px', fontWeight: 600 }}>{post.shares}</span>}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+          {post.shares > 0 && <span style={{ fontWeight: 700, color: 'var(--accent-cyan)' }}>{post.shares}</span>}
         </button>
       </div>
 
@@ -77,32 +103,22 @@ function App() {
   } = useSimulation();
 
   const [composerText, setComposerText] = useState('');
-  
-  // Custom Persona Form State
+  const [activeTab, setActiveTab] = useState('feed'); // 'feed', 'network', 'controls'
   const [newBotHandle, setNewBotHandle] = useState('');
-  const [newBotColor, setNewBotColor] = useState('#10b981'); // Default green
+  const [newBotColor, setNewBotColor] = useState('#10b981');
   const [newBotPrompt, setNewBotPrompt] = useState('');
-
-  // Node Inspector State
   const [selectedNode, setSelectedNode] = useState(null);
-
-  // Physics Control State
   const [physicsRepulsion, setPhysicsRepulsion] = useState(400);
   const [physicsLinkDist, setPhysicsLinkDist] = useState(40);
-
-  // Time Travel State
   const [timeScrub, setTimeScrub] = useState(100);
 
   const fgRef = useRef();
   
-  // Derived Extrapolated State for Time Travel
   const timeFilteredPosts = useMemo(() => {
     if (timeScrub === 100 || posts.length === 0) return posts;
-    
-    const earliest = posts[posts.length - 1]?.timestamp || Date.now(); // posts are unshifted
+    const earliest = posts[posts.length - 1]?.timestamp || Date.now();
     const latest = Date.now();
     const targetTime = earliest + (latest - earliest) * (timeScrub / 100);
-    
     const filterTimeline = (arr) => {
       return arr.filter(p => p.timestamp <= targetTime).map(p => ({
         ...p,
@@ -114,36 +130,29 @@ function App() {
 
   const timeFilteredNodes = useMemo(() => {
     if (timeScrub === 100 || nodes.length === 0) return nodes;
-    
     const earliest = posts[posts.length - 1]?.timestamp || Date.now();
-    const latest = Date.now();
-    const targetTime = earliest + (latest - earliest) * (timeScrub / 100);
-    
+    const targetTime = earliest + (Date.now() - earliest) * (timeScrub / 100);
     return nodes.filter(n => (n.spawnTime || earliest) <= targetTime);
   }, [nodes, posts, timeScrub]);
 
   const timeFilteredLinks = useMemo(() => {
     if (timeScrub === 100 || links.length === 0) return links;
-    
     const earliest = posts[posts.length - 1]?.timestamp || Date.now();
-    const latest = Date.now();
-    const targetTime = earliest + (latest - earliest) * (timeScrub / 100);
-    
+    const targetTime = earliest + (Date.now() - earliest) * (timeScrub / 100);
     return links.filter(l => (l.spawnTime || earliest) <= targetTime);
   }, [links, posts, timeScrub]);
 
-  // Track window size for responsive graph
   const [dimensions, setDimensions] = useState({
     width: 270,
-    height: typeof window !== 'undefined' ? window.innerHeight - 150 : 500
+    height: 500
   });
 
   useEffect(() => {
     const handleResize = () => {
-      // Just a rough estimate for the side panel width
+      const isMobile = window.innerWidth <= 768;
       setDimensions({
-        width: window.innerWidth < 1200 ? window.innerWidth - 64 : 270,
-        height: window.innerHeight - 150
+        width: isMobile ? window.innerWidth - 32 : window.innerWidth < 1200 ? window.innerWidth - 64 : 320,
+        height: isMobile ? window.innerHeight - 200 : window.innerHeight - 200
       });
     };
     window.addEventListener('resize', handleResize);
@@ -152,365 +161,174 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Update D3 physics when sliders change or network grows
     if (fgRef.current) {
       fgRef.current.d3Force('charge').strength(-physicsRepulsion);
-      
-      // Affect link distance dynamically based on ideological clustering
       fgRef.current.d3Force('link').distance(link => {
         let baseDist = physicsLinkDist;
-        if (link.sentiment === 'AGREE') baseDist *= 0.5; // Pull closer
-        if (link.sentiment === 'DISAGREE') baseDist *= 2.0; // Push farther away
+        if (link.sentiment === 'AGREE') baseDist *= 0.5;
+        if (link.sentiment === 'DISAGREE') baseDist *= 2.0;
         return baseDist;
       });
-      
-      // Small reheat to smoothly transition new physics state
       fgRef.current.d3ReheatSimulation();
     }
   }, [physicsRepulsion, physicsLinkDist, nodes.length, links.length]);
 
   return (
     <div className="app-container">
-      {/* Left Panel: Algorithm Controls */}
-      <aside className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <h1 className="text-gradient" style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>StanceBot</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 500 }}>
-          Living Opinion Network
-        </p>
+      {/* Sidebar: Controls (Hidden on mobile unless active) */}
+      <aside className={`side-panel glass-panel desktop-only ${activeTab === 'controls' ? 'active' : ''}`} style={{ padding: '32px', gap: '24px', display: activeTab === 'controls' || window.innerWidth > 1200 ? 'flex' : 'none' }}>
+        <div>
+          <h1 className="text-gradient" style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '4px' }}>StanceBot</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600 }}>
+            The Opinion Network
+          </p>
+        </div>
         
-        <div style={{ marginTop: '24px' }}>
-          <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', marginBottom: '12px' }}>Network Controls</h3>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Outrage Multiplier</label>
-              <span style={{ fontSize: '0.85rem', color: 'var(--accent-rose)' }}>{outrageMultiplier}%</span>
+        <div className="control-section" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <h3 style={{ fontSize: '1rem', color: 'white' }}>Dial Dynamics</h3>
+          <div className="control-item">
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Outrage</label>
+              <span style={{ fontSize: '0.85rem', color: 'var(--accent-rose)', fontWeight: 700 }}>{outrageMultiplier}%</span>
             </div>
-            <input 
-              type="range" 
-              min="0" max="100" 
-              value={outrageMultiplier} 
-              onChange={e => setOutrageMultiplier(Number(e.target.value))}
-              style={{ accentColor: 'var(--accent-rose)' }} 
-            />
+            <input type="range" min="0" max="100" value={outrageMultiplier} onChange={e => setOutrageMultiplier(Number(e.target.value))} style={{ width: '100%' }} />
           </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Curiosity Multiplier</label>
-              <span style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)' }}>{curiosityMultiplier}%</span>
+          <div className="control-item">
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Curiosity</label>
+              <span style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', fontWeight: 700 }}>{curiosityMultiplier}%</span>
             </div>
-            <input 
-              type="range" 
-              min="0" max="100" 
-              value={curiosityMultiplier} 
-              onChange={e => setCuriosityMultiplier(Number(e.target.value))}
-              style={{ accentColor: 'var(--accent-cyan)' }} 
-            />
+            <input type="range" min="0" max="100" value={curiosityMultiplier} onChange={e => setCuriosityMultiplier(Number(e.target.value))} style={{ width: '100%' }} />
           </div>
         </div>
 
-        <div style={{ marginTop: '12px' }}>
-          <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', marginBottom: '12px' }}>Physics Controls</h3>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Repulsion (Spaced out)</label>
-              <span style={{ fontSize: '0.85rem', color: '#a78bfa' }}>{physicsRepulsion}</span>
-            </div>
-            <input 
-              type="range" 
-              min="50" max="1000" step="10"
-              value={physicsRepulsion} 
-              onChange={e => setPhysicsRepulsion(Number(e.target.value))}
-              style={{ accentColor: '#a78bfa' }} 
-            />
+        <div className="control-section" style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '20px', border: '1px solid var(--border)' }}>
+          <h4 style={{ fontSize: '0.9rem', color: 'white' }}>Inject Persona</h4>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input type="color" value={newBotColor} onChange={e => setNewBotColor(e.target.value)} style={{ width: '32px', height: '32px', padding: '0', border: 'none', borderRadius: '8px', cursor: 'pointer', background: 'transparent' }} />
+            <input type="text" placeholder="@handle" value={newBotHandle} onChange={e => setNewBotHandle(e.target.value)} style={{ flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '8px', color: 'white', padding: '8px 12px', fontSize: '0.85rem' }} />
           </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Link Distance</label>
-              <span style={{ fontSize: '0.85rem', color: '#60a5fa' }}>{physicsLinkDist}</span>
-            </div>
-            <input 
-              type="range" 
-              min="10" max="200" step="5"
-              value={physicsLinkDist} 
-              onChange={e => setPhysicsLinkDist(Number(e.target.value))}
-              style={{ accentColor: '#60a5fa' }} 
-            />
-          </div>
+          <textarea placeholder="Personality traits..." value={newBotPrompt} onChange={e => setNewBotPrompt(e.target.value)} rows={3} style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '8px', color: 'white', padding: '10px 12px', fontSize: '0.85rem', resize: 'none', fontFamily: 'inherit' }} />
+          <button onClick={() => { if (newBotHandle && newBotPrompt) { createCustomBot(newBotHandle, newBotColor, newBotPrompt); setNewBotHandle(''); setNewBotPrompt(''); } }} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '12px', padding: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', transition: 'transform 0.2s' }}>Deploy Agent</button>
         </div>
-        
-        <div style={{ marginTop: 'auto', paddingTop: '24px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-           
-           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-             <h4 style={{ fontSize: '0.9rem', marginBottom: '4px' }}>Inject Custom Persona</h4>
-             <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="color" value={newBotColor} onChange={e => setNewBotColor(e.target.value)} style={{ width: '30px', height: '30px', padding: '0', border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'transparent' }} />
-                <input type="text" placeholder="@CryptoBro" value={newBotHandle} onChange={e => setNewBotHandle(e.target.value)} style={{ flex: 1, background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', color: 'white', padding: '4px 8px', fontSize: '0.8rem' }} />
-             </div>
-             <textarea 
-               placeholder="System Prompt (e.g. You are obsessed with Web3...)" 
-               value={newBotPrompt} 
-               onChange={e => setNewBotPrompt(e.target.value)}
-               rows={3}
-               style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', color: 'white', padding: '6px 8px', fontSize: '0.8rem', resize: 'none', fontFamily: 'inherit' }}
-             />
-             <button 
-               onClick={() => {
-                 if (newBotHandle && newBotPrompt) {
-                   createCustomBot(newBotHandle, newBotColor, newBotPrompt);
-                   setNewBotHandle('');
-                   setNewBotPrompt('');
-                 }
-               }}
-               style={{ background: 'var(--surface-hover)', border: '1px solid var(--border)', color: 'white', borderRadius: '4px', padding: '6px', fontSize: '0.8rem', cursor: 'pointer', transition: 'background 0.2s', marginTop: '4px' }}
-               onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-               onMouseOut={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-             >
-               Deploy Bot
-             </button>
-           </div>
-           
-           <button 
-             onClick={() => {
-               if(confirm("Are you sure you want to wipe the simulation logic and start over?")) {
-                 clearSimulation();
-               }
-             }}
-             style={{
-               background: 'transparent',
-               border: '1px solid var(--accent-rose)',
-               color: 'var(--accent-rose)',
-               padding: '8px 16px',
-               borderRadius: '6px',
-               cursor: 'pointer',
-               fontSize: '0.85rem',
-               fontWeight: 600,
-               transition: 'all 0.2s',
-             }}
-             onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(244, 63, 94, 0.1)' }}
-             onMouseOut={(e) => { e.currentTarget.style.background = 'transparent' }}
-           >
-             Reset Network
-           </button>
-        </div>
+
+        <button onClick={() => confirm("Reset all simulation data?") && clearSimulation()} style={{ marginTop: 'auto', background: 'transparent', border: '1px solid var(--accent-rose)', color: 'var(--accent-rose)', padding: '12px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>Wipe Simulation</button>
       </aside>
 
-      {/* Center Panel: The Feed */}
-      <main className="glass-panel" style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid var(--border)', paddingBottom: '12px', flexShrink: 0 }}>
-          <h2 style={{ fontSize: '1.25rem', margin: 0 }}>Live Feed</h2>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Timeline</span>
-            <input 
-              type="range" 
-              min="0" max="100" 
-              value={timeScrub} 
-              onChange={e => setTimeScrub(Number(e.target.value))}
-              style={{ accentColor: 'var(--accent-cyan)', width: '120px' }} 
-            />
-            <span style={{ fontSize: '0.8rem', color: timeScrub < 100 ? 'var(--accent-rose)' : 'var(--text-secondary)', display: 'inline-block', width: '32px' }}>
-               {timeScrub}%
-            </span>
-          </div>
-        </div>
-        
-        {/* Human Composer */}
-        <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', opacity: timeScrub < 100 ? 0.3 : 1, pointerEvents: timeScrub < 100 ? 'none' : 'auto' }}>
-          <input 
-            type="text" 
-            value={composerText}
-            onChange={(e) => setComposerText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && composerText.trim()) {
-                createHumanPost(composerText.trim());
-                setComposerText('');
-              }
-            }}
-            placeholder="Inject a thought into the network..." 
-            style={{ 
-              flex: 1, 
-              background: 'rgba(0,0,0,0.2)', 
-              border: '1px solid var(--border)', 
-              padding: '12px 16px', 
-              borderRadius: '8px', 
-              color: 'var(--text-primary)',
-              outline: 'none'
-            }} 
-          />
-          <button 
-            onClick={() => {
-              if (composerText.trim()) {
-                createHumanPost(composerText.trim());
-                setComposerText('');
-              }
-            }}
-            style={{ 
-              background: 'linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta))', 
-              border: 'none', 
-              borderRadius: '8px', 
-              padding: '0 24px', 
-              color: 'white', 
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
-          >
-            Post
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flexGrow: 1 }}>
-          {timeFilteredPosts.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '24px' }}>
-              {posts.length > 0 ? "No activity at this point in time..." : "Awaiting network activity..."}
+      {/* Main Content: Live Feed */}
+      <main className="main-content" style={{ display: activeTab === 'feed' || window.innerWidth > 800 ? 'flex' : 'none' }}>
+        <div className="glass-panel custom-scrollbar" style={{ flex: 1, padding: '24px', display: 'flex', flexDirection: 'column', overflowY: 'auto', borderRadius: window.innerWidth <= 768 ? '0' : '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', position: 'sticky', top: 0, background: 'transparent', backdropFilter: 'blur(10px)', zIndex: 10, paddingBottom: '16px', borderBottom: '1px solid var(--border)' }}>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Pulse Feed</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Timeflow</span>
+                <input type="range" min="0" max="100" value={timeScrub} onChange={e => setTimeScrub(Number(e.target.value))} style={{ width: '100px', cursor: 'pointer' }} />
+              </div>
             </div>
-          ) : (
-            timeFilteredPosts.map(post => (
-              <ThreadedPost 
-                key={post.id} 
-                post={post} 
-                likePost={likePost} 
-                sharePost={sharePost} 
-              />
-            ))
-          )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '32px' }}>
+            <input 
+              type="text" 
+              value={composerText} 
+              onChange={e => setComposerText(e.target.value)} 
+              onKeyDown={e => e.key === 'Enter' && composerText.trim() && (createHumanPost(composerText.trim()), setComposerText(''))}
+              placeholder="Inject a thought..." 
+              style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', padding: '16px 20px', borderRadius: '16px', color: 'white', fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s' }} 
+            />
+            <button onClick={() => composerText.trim() && (createHumanPost(composerText.trim()), setComposerText(''))} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '16px', padding: '0 24px', fontWeight: 700, cursor: 'pointer' }}>Post</button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {timeFilteredPosts.length === 0 ? (
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>Waiting for the network to ripple...</div>
+            ) : (
+              timeFilteredPosts.map(post => <ThreadedPost key={post.id} post={post} likePost={likePost} sharePost={sharePost} />)
+            )}
+          </div>
         </div>
       </main>
 
-      {/* Right Panel: The Graph / Topology */}
-      <aside className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column' }}>
-        <h3 style={{ fontSize: '1.1rem', marginBottom: '16px' }}>Network Topology</h3>
-        <div className="glass" style={{ flex: 1, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {typeof window !== 'undefined' && (
+      {/* Right Sidebar: Topology (Hidden on mobile unless active) */}
+      <aside className={`side-panel glass-panel desktop-only ${activeTab === 'network' ? 'active' : ''}`} style={{ padding: '32px', display: activeTab === 'network' || window.innerWidth > 1400 ? 'flex' : 'none', position: 'relative' }}>
+        <h3 style={{ fontSize: '1.25rem', marginBottom: '24px' }}>Topology</h3>
+        <div style={{ flex: 1, background: 'rgba(0,0,0,0.2)', borderRadius: '24px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+           {typeof window !== 'undefined' && (
               <ForceGraph2D
                 ref={fgRef}
                 graphData={{ nodes: timeFilteredNodes, links: timeFilteredLinks }}
                 width={dimensions.width}
                 height={dimensions.height}
-                nodeLabel="handle"
-                nodeColor={node => node.color}
-                nodeRelSize={6}
-                linkColor={link => {
-                  if (link.sentiment === 'AGREE') return 'rgba(16, 185, 129, 0.6)'; // Green
-                  if (link.sentiment === 'DISAGREE') return 'rgba(244, 63, 94, 0.6)'; // Red
-                  return 'rgba(255,255,255,0.2)';
-                }}
-                linkWidth={link => link.value * 0.5 + 1}
+                nodeColor={n => n.color}
+                nodeRelSize={7}
+                linkColor={() => 'rgba(255,255,255,0.1)'}
+                linkWidth={l => l.value * 0.5 + 1}
                 backgroundColor="transparent"
-                d3AlphaDecay={0.02}
-                d3VelocityDecay={0.4}
-                onNodeClick={node => setSelectedNode(node)}
+                onNodeClick={n => setSelectedNode(n)}
               />
-            )}
-            
-            {/* Node Inspector Overlay */}
-            {selectedNode && (
-              <div 
-                style={{ 
-                  position: 'absolute', 
-                  top: '16px', 
-                  left: '16px', 
-                  right: '16px', 
-                  width: 'auto', 
-                  maxHeight: 'calc(100% - 32px)',
-                  background: 'linear-gradient(145deg, rgba(20,20,30,0.95), rgba(10,10,15,0.95))', 
-                  backdropFilter: 'blur(16px)', 
-                  border: `1px solid ${selectedNode.color}40`, 
-                  borderRadius: '16px', 
-                  zIndex: 50, 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  boxShadow: `0 20px 40px rgba(0,0,0,0.6), 0 0 20px ${selectedNode.color}20`,
-                  overflowY: 'auto',
-                  animation: 'fadeIn 0.2s ease-out'
-                }}
-                className="custom-scrollbar"
-              >
-                {/* Header Strip */}
-                <div style={{ height: '6px', background: selectedNode.color, width: '100%' }}></div>
-                
-                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                       <h4 style={{ color: 'white', fontSize: '1.25rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700 }}>
-                        <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: selectedNode.color, boxShadow: `0 0 10px ${selectedNode.color}` }}></div>
-                        {selectedNode.handle}
-                      </h4>
-                      <span style={{ fontSize: '0.75rem', color: selectedNode.id === 'human_user' ? 'var(--accent-cyan)' : 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-                        {selectedNode.id === 'human_user' ? 'Network Administrator' : 'AI Bot'}
-                      </span>
-                    </div>
-                    
-                    <button 
-                      onClick={() => setSelectedNode(null)} 
-                      style={{ 
-                        background: 'rgba(255,255,255,0.1)', 
-                        border: 'none', 
-                        color: 'white', 
-                        cursor: 'pointer', 
-                        width: '28px', 
-                        height: '28px', 
-                        borderRadius: '50%', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center',
-                        transition: 'background 0.2s'
-                      }}
-                      onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-                      onMouseOut={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  
-                  <div style={{ display: 'flex', gap: '12px', background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Influence Score</span>
-                      <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'white' }}>{Math.round(selectedNode.val)}</div>
-                     </div>
-                     <div style={{ width: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
-                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Age</span>
-                      <div style={{ fontSize: '1.1rem', fontWeight: 500, color: 'white', marginTop: 'auto', paddingBottom: '2px' }}>
-                        {selectedNode.spawnTime ? Math.floor((Date.now() - selectedNode.spawnTime) / 60000) + 'm' : 'Ancient'}
-                      </div>
-                     </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                      System Prompt 
-                      <span style={{ fontSize: '0.7rem', color: 'var(--accent-magenta)' }}>Mutating</span>
-                    </span>
-                    <div className="custom-scrollbar" style={{ 
-                      fontSize: '0.85rem', 
-                      color: 'var(--text-primary)', 
-                      background: 'rgba(0,0,0,0.4)', 
-                      padding: '12px', 
-                      borderRadius: '8px', 
-                      maxHeight: '200px', 
-                      overflowY: 'auto',
-                      borderLeft: `3px solid ${selectedNode.color}`,
-                      lineHeight: '1.5'
-                    }}>
-                      {(() => {
-                        if (selectedNode.id === 'human_user') return <i style={{ color: 'var(--text-secondary)' }}>No algorithmic constraints. Pure human chaos.</i>;
-                        const bot = activeBots.find(b => b.id === selectedNode.id);
-                        if (!bot) return <i>Bot properties not found.</i>;
-                        return activePrompts[bot.role] || <i>No prompt assigned.</i>;
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+           )}
         </div>
+
+        {selectedNode && (
+          <div className="glass animate-entrance" style={{ position: 'absolute', bottom: '32px', left: '32px', right: '32px', padding: '24px', borderRadius: '24px', border: `2px solid ${selectedNode.color}40`, zIndex: 100 }}>
+             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+                <div>
+                  <h4 style={{ color: 'white', fontSize: '1.2rem' }}>{selectedNode.handle}</h4>
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Influence: {Math.round(selectedNode.val)}</p>
+                </div>
+                <button onClick={() => setSelectedNode(null)} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+             </div>
+             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '12px', maxHeight: '120px', overflowY: 'auto' }}>
+                {activePrompts[activeBots.find(b => b.id === selectedNode.id)?.role] || "User-controlled entity."}
+             </div>
+          </div>
+        )}
       </aside>
+
+      {/* Mobile Navigation Bar */}
+      <nav style={{ 
+        position: 'fixed', 
+        bottom: 0, 
+        left: 0, 
+        right: 0, 
+        height: '70px', 
+        background: 'rgba(5, 5, 8, 0.8)', 
+        backdropFilter: 'blur(20px)', 
+        borderTop: '1px solid var(--border)', 
+        display: window.innerWidth <= 1200 ? 'flex' : 'none', 
+        justifyContent: 'space-around', 
+        alignItems: 'center', 
+        zIndex: 1000,
+        padding: '0 10px'
+      }}>
+        {[
+          { id: 'feed', label: 'Feed', icon: 'M19 20H5V4h2v14h12v2z' },
+          { id: 'network', label: 'Network', icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z' },
+          { id: 'controls', label: 'Controls', icon: 'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4V7H3v2h12z' }
+        ].map(tab => (
+          <button 
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: activeTab === tab.id ? 'var(--accent-cyan)' : 'var(--text-muted)', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: '4px',
+              cursor: 'pointer',
+              transition: 'color 0.2s'
+            }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d={tab.icon} />
+            </svg>
+            <span style={{ fontSize: '0.7rem', fontWeight: 600 }}>{tab.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }
