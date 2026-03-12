@@ -206,6 +206,11 @@ export const SimulationProvider = ({ children }) => {
   // ─── AI Text Generation ────────────────────────────────────────────────────
   const generateBotText = async (bot, isReply, targetPost = null) => {
     if (!groq) return { text: "DEBUG: No Groq API key found.", sentiment: null };
+    
+    // Simulate "thinking" time
+    const thinkingTime = 500 + Math.random() * 1500; // 0.5s to 2s
+    await new Promise(resolve => setTimeout(resolve, thinkingTime));
+
     try {
       // Pick a fresh random topic every time a bot decides to post
       const randomTopic = POST_TOPIC_POOL[Math.floor(Math.random() * POST_TOPIC_POOL.length)];
@@ -435,16 +440,18 @@ export const SimulationProvider = ({ children }) => {
       currentState.activeBots.forEach(bot => {
         if (generatingBotsRef.current.has(bot.id)) return;
         const activityModifier = (currentState.curiosityMultiplier / 100) + (currentState.outrageMultiplier / 100);
-        if (Math.random() < bot.baseLikelihoodToPost * activityModifier * 0.3) {
+        
+        // Use a much lower baseline probability (now checked every 10s)
+        if (Math.random() < bot.baseLikelihoodToPost * activityModifier * 0.1) {
           createNewPost(bot);
-        } else if (currentState.posts.length > 0 && Math.random() < bot.baseLikelihoodToReply * activityModifier * 0.5) {
+        } else if (currentState.posts.length > 0 && Math.random() < bot.baseLikelihoodToReply * activityModifier * 0.15) {
           const flattenThreads = (arr) => arr.reduce((acc, p) => [...acc, p, ...flattenThreads(p.replies || [])], []);
           const recentActivity = flattenThreads(currentState.posts).sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
           const targetPost = recentActivity[Math.floor(Math.random() * recentActivity.length)];
           if (targetPost && targetPost.author.id !== bot.id) createReply(bot, targetPost);
         }
       });
-    }, 2500);
+    }, 10000); // 10 second heart-beat instead of 2.5s
 
     // Infection Loop
     const infectionInterval = setInterval(() => {
