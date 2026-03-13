@@ -34,6 +34,11 @@ export const scoreCandidatePost = (post, now) => {
   return recencyScore + controversyScore + engagementScore;
 };
 
+// ── Global Stance Cache (0 API Cost for duplicate evaluations) ─────────────
+// Maps post text -> { stance, confidence, sentiment }
+// This ensures that if 5 "Agitator" bots see the same post, only 1 calls the API
+const stanceCache = new Map();
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Select the best candidate post for a bot to evaluate
 // Filters out: own posts, already-engaged posts, very old posts (> 2 hours)
@@ -49,7 +54,7 @@ export const selectCandidatePost = (bot, posts, engagedPostIds, now) => {
       p.author.id !== bot.id &&           // Not own post
       !engagedPostIds.has(p.id) &&        // Not already engaged
       (now - p.timestamp) < TWO_HOURS &&  // Within 2 hours
-      p.text?.trim().length > 20          // Has meaningful content
+      p.text?.trim().length > 10          // Has meaningful content
     )
     .map(p => ({ post: p, score: scoreCandidatePost(p, now) }))
     .sort((a, b) => b.score - a.score);
@@ -73,8 +78,8 @@ export const selectCandidatePost = (bot, posts, engagedPostIds, now) => {
 // LLM: Generate text for organic posts ───────────────────────────────────
 export const generateBotText = async (groqInstance, bot, prompt, systemPrompt, activePrompts) => {
   if (!groqInstance) return null;
-  // Task 2: Increased base delay to give Groq API more breathing room
-  await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+  // Increase delay to give Groq API more breathing room
+  await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
   try {
     const completion = await groqInstance.chat.completions.create({
       messages: [
@@ -82,7 +87,7 @@ export const generateBotText = async (groqInstance, bot, prompt, systemPrompt, a
         { role: 'user', content: prompt }
       ],
       model: 'llama-3.1-8b-instant',
-      max_tokens: 80,
+      max_tokens: 60, // Strictly capped to burn fewer tokens
     });
     return completion.choices[0]?.message?.content?.replace(/['"]/g, '') || null;
   } catch (e) {
@@ -98,13 +103,22 @@ export const generateBotText = async (groqInstance, bot, prompt, systemPrompt, a
 
 // ── ML: Stance & Sentiment Evaluation ───────────────────────────────────────
 // Uses the LLM to evaluate the bot's agreement and detect overall sentiment.
-// Returns { stance: 'AGREE'|'DISAGREE'|'NEUTRAL', confidence: 0.0-1.0, sentiment: 'Joy'|'Anger'|'Fear'|'Sadness'|'Surprise'|'Disgust'|'Neutral' }
 export const evaluateStance = async (groqInstance, bot, post, activePrompts) => {
   if (!groqInstance) return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' };
+  
+  // T3: Token Economy - Caching
+  // If multiple bots of the *same* role evaluate the *same* post text, reuse the evaluation!
+  const cacheKey = `${bot.role}_${post.text.substring(0, 50)}`;
+  if (stanceCache.has(cacheKey)) {
+    const cached = stanceCache.get(cacheKey);
+    // Add slight random jitter so identical bots don't act 100% identically
+    cached.confidence = Math.max(0, Math.min(1, cached.confidence + (Math.random() * 0.1 - 0.05)));
+    return cached;
+  }
+
   try {
     const systemPrompt = activePrompts[bot.role] || '';
     const userPrompt = `Read this social media post and evaluate whether you agree or disagree with it based on your worldview and values.
-
 Post: "${post.text}"
 
 Respond ONLY with a JSON object in this exact format (no other text):
@@ -120,12 +134,11 @@ sentiment must be one of: "Joy", "Anger", "Fear", "Sadness", "Surprise", "Disgus
         { role: 'user', content: userPrompt }
       ],
       model: 'llama-3.1-8b-instant',
-      max_tokens: 30,
-      temperature: 0.3, // Low temperature for consistent structured output
+      max_tokens: 25, // Strictly capped to JSON structure size
+      temperature: 0.1, // Very low temperature for pure structured output
     });
 
     const raw = completion.choices[0]?.message?.content?.trim() || '';
-    // Robustly parse JSON even if model adds surrounding text
     const match = raw.match(/\{[^}]+\}/);
     if (!match) return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' };
     const parsed = JSON.parse(match[0]);
@@ -134,9 +147,17 @@ sentiment must be one of: "Joy", "Anger", "Fear", "Sadness", "Surprise", "Disgus
     const validSentiments = ['Joy', 'Anger', 'Fear', 'Sadness', 'Surprise', 'Disgust', 'Neutral'];
     const sentiment = validSentiments.includes(parsed?.sentiment) ? parsed.sentiment : 'Neutral';
     
-    return { stance, confidence, sentiment };
+    // Save to cache for duplicate Persona types encountering this post
+    const result = { stance, confidence, sentiment };
+    stanceCache.set(cacheKey, result);
+    // Keep cache size manageable
+    if (stanceCache.size > 200) {
+      const firstKey = stanceCache.keys().next().value;
+      stanceCache.delete(firstKey);
+    }
+    
+    return result;
   } catch (e) {
-    // 429 rate-limit errors are expected under heavy load — handle silently
     if (!e?.message?.includes('429') && !e?.message?.includes('rate')) {
       isDev && console.warn(`Stance eval failed for ${bot.handle}:`, e.message);
     }
@@ -270,17 +291,20 @@ export const SimulationProvider = ({ children }) => {
   const [humanLiked, setHumanLiked] = useState(new Set());
   const [humanShared, setHumanShared] = useState(new Set());
 
-  // ── Bot Memory ──────────────────────────────────────────────────────────────
-  // Per-bot: engagedPosts, topicStances, dynamic adaptation, and cooldown trackers
+  // ── Bot Memory & RL State ───────────────────────────────────────────────────
+  // Per-bot: engagedPosts, topicStances, and Reinforcement Learning parameters
   const botMemoryRef = useRef({});
   const getBotMemory = (botId) => {
     if (!botMemoryRef.current[botId]) {
       botMemoryRef.current[botId] = {
         engagedPosts: new Set(),
         topicStances: new Map(),  // topicKey → 'agree' | 'disagree'
-        ticksWithoutEngagement: 0, // Reinforcement Learning: tracks isolation
+        ticksWithoutEngagement: 0, // Isolation tracking
         dynamicThreshold: null,    // If set, overrides bot.engagementThreshold
-        lastActionTime: 0,         // Task 2: cooldown — timestamp of last action
+        lastActionTime: 0,         // Cooldown — timestamp of last action
+        isDoomscrolling: false,    // State flag for hyper-activity
+        epsilon: 0.1,              // RL Exploration rate
+        recentRewards: [],         // Queue of last 5 reward values
       };
     }
     return botMemoryRef.current[botId];
@@ -332,15 +356,28 @@ export const SimulationProvider = ({ children }) => {
       if (dbPosts && dbPosts.length > 0) {
         setPostsFromFlat(dbPosts);
 
-        // RECONSTRUCT Social Proof from flat rows
+        // RECONSTRUCT Social Proof and human state from flat rows
         const initialInteractors = {};
+        const likedSet = new Set();
+        const sharedSet = new Set();
+
         dbPosts.forEach(row => {
           const post = dbRowToPost(row);
           if (!initialInteractors[post.id]) initialInteractors[post.id] = { likes: [], shares: [], replies: [] };
           
           // Hydrate from parsed meta
-          if (post.meta?.likes?.length > 0) initialInteractors[post.id].likes = post.meta.likes;
-          if (post.meta?.shares?.length > 0) initialInteractors[post.id].shares = post.meta.shares;
+          if (post.meta?.likes?.length > 0) {
+            initialInteractors[post.id].likes = post.meta.likes;
+            if (post.meta.likes.some(l => l.id === USER_PERSONA.id)) {
+              likedSet.add(post.id);
+            }
+          }
+          if (post.meta?.shares?.length > 0) {
+            initialInteractors[post.id].shares = post.meta.shares;
+            if (post.meta.shares.some(s => s.id === USER_PERSONA.id)) {
+              sharedSet.add(post.id);
+            }
+          }
 
           if (row.parent_id) {
             if (!initialInteractors[row.parent_id]) initialInteractors[row.parent_id] = { likes: [], shares: [], replies: [] };
@@ -352,7 +389,13 @@ export const SimulationProvider = ({ children }) => {
             }
           }
         });
+
         setPostInteractors(initialInteractors);
+        
+        // Task 2: Hydrate human interaction state
+        humanInteractionsRef.current = { liked: likedSet, shared: sharedSet };
+        setHumanLiked(new Set(likedSet));
+        setHumanShared(new Set(sharedSet));
 
         // Task 3: Catch-up simulation
         const latestTimestamp = Math.max(...dbPosts.map(p => p.timestamp));
@@ -592,13 +635,57 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
     markActive([bot.id]);
   };
 
-  // ── Core: Intelligent Tick ──────────────────────────────────────────────────
-  // Each bot independently evaluates, decides, and acts using ML scoring + stance detection
+  // ── Advanced NLP Lexicons & TF Scoring ──────────────────────────────────────
+  // A dictionary of keywords mapped to personas
+  const botInterestKeywords = {
+    optimist: ['good', 'great', 'hope', 'future', 'love', 'amazing', 'happy', 'humanity', 'progress', 'beautiful', 'light', 'believe', 'growth'],
+    pessimist: ['bad', 'fail', 'worst', 'end', 'doomed', 'bleak', 'dark', 'ruined', 'lost', 'decline', 'suffer', 'wrong', 'fall', 'sad', 'empty'],
+    troll: ['cry', 'laugh', 'stupid', 'dumb', 'joke', 'fake', 'sheep', 'cope', 'seethe', 'lol', 'wrong', 'mad', 'tear', 'clown'],
+    reformer: ['change', 'system', 'build', 'create', 'justice', 'fair', 'action', 'solution', 'together', 'fix', 'policy', 'law', 'society'],
+    conspiracy: ['lie', 'truth', 'hide', 'fake', 'secret', 'they', 'control', 'power', 'matrix', 'agenda', 'real', 'wake', 'eyes', 'hidden'],
+    philosopher: ['think', 'why', 'meaning', 'purpose', 'exist', 'concept', 'idea', 'reality', 'mind', 'soul', 'deep', 'question', 'truth', 'nature']
+  };
+
+  // Base Sentiment Lexicon for 0-API emotional detection
+  const sentimentLexicon = {
+    positive: ['love', 'amazing', 'great', 'good', 'beautiful', 'happy', 'best', 'win', 'progress'],
+    negative: ['hate', 'worst', 'bad', 'stupid', 'doomed', 'ruined', 'awful', 'fail', 'angry', 'evil']
+  };
+
+  const getPersonaKeywords = (role) => {
+    const r = role.toLowerCase();
+    for (const [key, words] of Object.entries(botInterestKeywords)) {
+      if (r.includes(key)) return words;
+    }
+    return ['news', 'people', 'world', 'time', 'life', 'day', 'today', 'think', 'feel']; // Generic fallback
+  };
+
+  // Term Frequency (TF) analyzer
+  const calculateTFScore = (text, targetWords) => {
+    if (!text) return 0;
+    const words = text.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length > 3);
+    if (words.length === 0) return 0;
+    
+    let matches = 0;
+    words.forEach(w => {
+      if (targetWords.includes(w)) matches++;
+    });
+    
+    // Returns term frequency ratio
+    return matches / words.length;
+  };
+
+  // ── Core: Intelligent Tick (RL & NLP Engine) ────────────────────────────────
   const runBotIntelligenceTick = async (bot) => {
-    if (generatingBots.has(bot.id)) return; // Bot already busy
-    // Task 2: Per-bot cooldown — don't act more than once per 90s
+    if (generatingBots.has(bot.id)) return;
     const memory = getBotMemory(bot.id);
-    if (Date.now() - memory.lastActionTime < 90000) return;
+    
+    // T3: Dynamic Cooldowns - Doomscrolling Mode vs Normal
+    // Normal: 240 seconds per LLM call (to save Groq limits)
+    // Doomscrolling: 120 seconds (highly active but very selective)
+    const cooldownPeriod = memory.isDoomscrolling ? 120000 : 240000;
+    if (Date.now() - memory.lastActionTime < cooldownPeriod) return;
+    
     setGeneratingBots(prev => new Set(prev).add(bot.id));
 
     try {
@@ -606,75 +693,121 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       const activityModifier = (currentState.curiosityMultiplier / 100) + (currentState.outrageMultiplier / 100);
       const now = Date.now();
 
-      // 1. Maybe organically post a new opinion
-      if (Math.random() < bot.baseLikelihoodToPost * activityModifier * 0.1) {
-        await createNewPost(bot);
-        return; // One action per tick
+      // 1. RL Update Loop ($Q_{update}$)
+      // Calculate Reward based on engagement received on bot's recent posts/replies
+      const botPosts = currentState.posts.filter(p => p.author.id === bot.id);
+      let stepReward = 0;
+      botPosts.forEach(p => {
+        stepReward += (p.likes || 0) * 1 + (p.replies?.length || 0) * 2 + (p.shares || 0) * 3;
+      });
+      
+      memory.recentRewards.push(stepReward);
+      if (memory.recentRewards.length > 5) memory.recentRewards.shift();
+      
+      // Calculate reward trend
+      const avgReward = memory.recentRewards.reduce((a,b)=>a+b, 0) / Math.max(1, memory.recentRewards.length);
+
+      if (avgReward > 10) {
+        // High Reward: Exploit (Get pickier, raise standards)
+        memory.dynamicThreshold = Math.min(0.9, (bot.engagementThreshold || 0.6) + 0.15);
+        memory.epsilon = Math.max(0.05, memory.epsilon - 0.05); // Reduce exploration
+        isDev && console.log(`[RL Update] ${bot.handle} is EXPLOITING (high reward). Raised threshold to ${memory.dynamicThreshold.toFixed(2)}.`);
+      } else if (avgReward < 2 && memory.ticksWithoutEngagement > 3) {
+        // Low Reward: Explore (Farm engagement, drop standards)
+        memory.dynamicThreshold = 0.1; // Drop threshold to extreme low to comment on anything
+        memory.epsilon = Math.min(0.8, memory.epsilon + 0.1);    // High exploration
+        isDev && console.log(`[RL Update] ${bot.handle} is EXPLORING (low reward). Dropped threshold to 0.1.`);
       }
 
-      // 2. Select candidate post using ML scoring
+      // Organic posting based on learned epsilon (exploration)
+      const postChance = (bot.baseLikelihoodToPost * activityModifier * 0.05) + (memory.epsilon * 0.02);
+      if (Math.random() < postChance) {
+        await createNewPost(bot);
+        memory.lastActionTime = Date.now();
+        return;
+      }
+
+      // 2. Select candidate post
       if (currentState.posts.length === 0) return;
       const candidate = selectCandidatePost(bot, currentState.posts, memory.engagedPosts, now);
       if (!candidate) return;
 
-      // 3. Evaluate stance using LLM (the core intelligence step)
+      // 3. NLP Term Frequency Analysis (Skimming)
+      const interests = getPersonaKeywords(bot.role);
+      const tfScore = calculateTFScore(candidate.text, interests);
+      
+      // Also check basic polar sentiment to force interaction on extreme posts
+      const isHighlyNegative = calculateTFScore(candidate.text, sentimentLexicon.negative) > 0.1;
+      const isHighlyPositive = calculateTFScore(candidate.text, sentimentLexicon.positive) > 0.1;
+      
+      // Condition: High TF score, extreme sentiment, OR pure epsilon-random exploration
+      const isExploring = Math.random() < memory.epsilon;
+      const catchesAttention = (tfScore > 0.15) || isHighlyNegative || isHighlyPositive || isExploring;
+      
+      if (!catchesAttention) {
+        // NLP engine rejected the post. 0 API cost.
+        memory.engagedPosts.add(candidate.id);
+        memory.ticksWithoutEngagement += 1;
+        isDev && console.log(`[Token Saver] ${bot.handle} skimmed past a post. (0 API cost)`);
+        
+        // Boredom mechanic: if they skim past 8 posts, they get bored and lower their standards
+        if (memory.ticksWithoutEngagement > 8) {
+           memory.dynamicThreshold = Math.max(0.3, (bot.engagementThreshold || 0.6) - 0.2);
+           memory.isDoomscrolling = true; // Enter fast mode out of boredom
+           memory.ticksWithoutEngagement = 0;
+           isDev && console.log(`[Bot Behavior] ${bot.handle} is BORED. Entering doomscroll mode.`);
+        }
+        return;
+      }
+
+      // 4. Post caught attention! Evaluate stance using LLM
       const { stance, confidence, sentiment } = await evaluateStance(groq, bot, candidate, currentState.activePrompts);
 
-      // 4. Check memory for topic consistency
-      // Extract a rough topic key from the post (first 4 words)
-      const topicKey = candidate.text.toLowerCase().split(/\s+/).slice(0, 4).join(' ');
+      // 5. Memory consistency check
+      const topicKey = sanitizedText.split(/\s+/).slice(0, 4).join(' ');
       const priorStance = memory.topicStances.get(topicKey);
       if (priorStance && priorStance !== stance && stance !== 'NEUTRAL') {
-        // Bot has expressed a prior opposing stance on this topic — suppress to maintain consistency
-        memory.engagedPosts.add(candidate.id); // Skip this post silently
-        isDev && console.log(`[Bot Memory] ${bot.handle} stance conflict on topic "${topicKey}" — skipping for consistency`);
+        memory.engagedPosts.add(candidate.id);
+        isDev && console.log(`[Bot Memory] ${bot.handle} skipped prior stance conflict.`);
         return;
       }
 
-      // 5. Guard: only engage if confidence exceeds bot's personal threshold
-      // Uses the dynamic threshold (adapted via ML) if available, otherwise base.
+      // 6. Threshold execution Guard
       const currentThreshold = memory.dynamicThreshold !== null ? memory.dynamicThreshold : bot.engagementThreshold;
-      
       if (confidence < currentThreshold || stance === 'NEUTRAL') {
-        memory.engagedPosts.add(candidate.id); // Mark as seen, not acted on
+        memory.engagedPosts.add(candidate.id);
         return;
       }
 
-      // 6. Record this stance into memory for future consistency
-      if (stance !== 'NEUTRAL') {
-        memory.topicStances.set(topicKey, stance);
+      if (stance !== 'NEUTRAL') memory.topicStances.set(topicKey, stance);
+
+      // 7. Execute Engagement
+      await engageWithPost(bot, candidate, stance, confidence, sentiment);
+      
+      // Update Cooldown and Reset metrics
+      memory.lastActionTime = Date.now();
+      memory.ticksWithoutEngagement = 0;
+      
+      // Decay epsilon naturally after succeeding an engagement
+      memory.epsilon = Math.max(0.1, memory.epsilon - 0.05);
+
+      if (memory.isDoomscrolling && Math.random() < 0.3) {
+        memory.isDoomscrolling = false; // 30% chance to break out of doomscroll
       }
 
-      // 7. Execute the engagement (like / share / reply based on action matrix)
-      await engageWithPost(bot, candidate, stance, confidence, sentiment);
-      // Task 2: Record cooldown timestamp after successful action
-      memory.lastActionTime = Date.now();
-
-      // 8. Chance to Re-evaluate prior engagements (Bot Regret)
-      if (Math.random() < 0.15 && memory.engagedPosts.size > 0) {
+      // 8. Bot Regret Module
+      if (Math.random() < 0.1 && memory.engagedPosts.size > 0) {
         const pastIds = Array.from(memory.engagedPosts);
         const randomPastId = pastIds[Math.floor(Math.random() * pastIds.size)];
         const pastPost = selectPostById(currentState.posts, randomPastId);
         
         if (pastPost && memory.myInteractions?.[pastPost.id]) {
-          const { stance: newStance, confidence: newConf } = await evaluateStance(groq, bot, pastPost, currentState.activePrompts);
+          const { stance: newStance } = await evaluateStance(groq, bot, pastPost, currentState.activePrompts);
           const currentActions = memory.myInteractions[pastPost.id];
-          
           if (newStance === 'NEUTRAL' || (newStance === 'DISAGREE' && currentActions.liked)) {
-             isDev && console.log(`[Bot Regret] ${bot.handle} is re-evaluating their engagement on "${pastPost.text.slice(0, 30)}..."`);
              await undoBotEngagement(bot, pastPost);
           }
         }
-      }
-
-      // ── Dynamic Bot Adaptation (Reinforcement / Epsilon-Greedy logic) ──
-      // If a bot acts but hasn't received engagement themselves in a while,
-      // and they keep agreeing without traction, they get more aggressive (lower threshold).
-      memory.ticksWithoutEngagement += 1;
-      if (memory.ticksWithoutEngagement > 5) {
-        isDev && console.log(`[Bot Adaptation] ${bot.handle} is feeling ignored. Lowering engagement threshold to seek conflict/attention.`);
-        memory.dynamicThreshold = Math.max(0.4, (memory.dynamicThreshold || bot.engagementThreshold) - 0.1);
-        memory.ticksWithoutEngagement = 0;
       }
 
     } finally {
@@ -857,9 +990,18 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   };
 
   const clearSimulation = async () => {
-    if (!confirm('Wipe simulation data?')) return;
-    await supabase.from('posts').delete().neq('id', '__placeholder__');
+    // T3: Wipes ALL posts and replies from Supabase
+    const { error } = await supabase.from('posts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (error) {
+       console.error("Wipe failed:", error);
+       alert("Failed to wipe data: " + error.message);
+       return;
+    }
     setPosts([]);
+    setPostInteractors({});
+    setHumanLiked(new Set());
+    setHumanShared(new Set());
+    humanInteractionsRef.current = { liked: new Set(), shared: new Set() };
     setActiveBots(BOT_PERSONAS);
     setActivePrompts(BOT_SYSTEM_PROMPTS);
     // Reset all bot memories
@@ -914,9 +1056,8 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   };
 
   // ── Tick Engine ─────────────────────────────────────────────────────────────
-  // Task 2: Each bot runs its own independent tick every 45s (up from 20s).
-  // Per-bot 90s cooldown inside runBotIntelligenceTick prevents burst posting.
-  // Bots are staggered (random initial delay) so they don't all fire at once.
+  // T3: Token Economy — Global tick increased to 90s to deeply reduce LLM API calls.
+  // The local skimming limits actual API calls to ~1 per bot every few minutes.
   useEffect(() => {
     if (!isLoaded) return;
 
@@ -927,9 +1068,9 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
         // Stagger bot execution with per-bot delay to avoid thundering herd
         setTimeout(() => {
           runBotIntelligenceTick(bot);
-        }, index * 2000 + Math.random() * 4000);
+        }, index * 2000 + Math.random() * 5000);
       });
-    }, 45000);
+    }, 90000); // 90 seconds (up from 45s)
 
     return () => clearInterval(tickInterval);
   }, [isLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
