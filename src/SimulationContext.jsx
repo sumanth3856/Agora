@@ -73,7 +73,8 @@ export const selectCandidatePost = (bot, posts, engagedPostIds, now) => {
 // LLM: Generate text for organic posts ───────────────────────────────────
 export const generateBotText = async (groqInstance, bot, prompt, systemPrompt, activePrompts) => {
   if (!groqInstance) return null;
-  await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1500));
+  // Task 2: Increased base delay to give Groq API more breathing room
+  await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
   try {
     const completion = await groqInstance.chat.completions.create({
       messages: [
@@ -192,6 +193,55 @@ Example: ["Topic 1", "Topic 2", "Topic 3", "Topic 4", "Topic 5"]`;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tree helpers
+// ─────────────────────────────────────────────────────────────────────────────
+export const existsInTree = (postsArr, id) => {
+  for (const post of postsArr) {
+    if (post.id === id) return true;
+    if (post.replies?.length > 0 && existsInTree(post.replies, id)) return true;
+  }
+  return false;
+};
+
+export const dbRowToPost = (row) => {
+  // T1: Extract metadata proof from text if present (Fallback for missing JSONB columns)
+  let cleanText = row.text || '';
+  let meta = { likes: [], shares: [] };
+  
+  // Robust hidden metadata extraction: match any hidden [social_proof:...] block
+  const metaRegex = /\s*\[social_proof:({.*?})\]\s*$/s;
+  const metaMatch = cleanText.match(metaRegex);
+  
+  if (metaMatch) {
+    try {
+      meta = JSON.parse(metaMatch[1]);
+      // Strip ALL meta blocks from the clean text
+      cleanText = cleanText.replace(/\s*\[social_proof:.*?\]\s*$/gs, '').trim();
+    } catch (e) {
+      console.warn("Failed to parse social proof metadata:", e);
+    }
+  }
+
+  // Support dedicated JSONB columns if they exist (User preference)
+  if (row.likes_json) meta.likes = Array.isArray(row.likes_json) ? row.likes_json : meta.likes;
+  if (row.shares_json) meta.shares = Array.isArray(row.shares_json) ? row.shares_json : meta.shares;
+
+  return {
+    id: row.id,
+    author: { id: row.author_id, handle: row.author_handle, color: row.author_color },
+    text: cleanText,
+    timestamp: row.timestamp,
+    likes: row.likes || 0,
+    shares: row.shares || 0,
+    replies: [],
+    // T1: Persist reply attribution from DB
+    replyToHandle: row.reply_to_handle || null,
+    replyToId: row.parent_id || null,
+    meta // Hidden metadata for reconstruction
+  };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SimulationProvider
 // ─────────────────────────────────────────────────────────────────────────────
 export const SimulationProvider = ({ children }) => {
@@ -215,8 +265,13 @@ export const SimulationProvider = ({ children }) => {
   const stateRef = useRef({ posts, outrageMultiplier, curiosityMultiplier, activeBots, activePrompts });
   const [generatingBots, setGeneratingBots] = useState(new Set()); // bots currently mid-LLM call
 
+  // Task 4: Track human interactions to prevent duplicate likes/shares
+  const humanInteractionsRef = useRef({ liked: new Set(), shared: new Set() });
+  const [humanLiked, setHumanLiked] = useState(new Set());
+  const [humanShared, setHumanShared] = useState(new Set());
+
   // ── Bot Memory ──────────────────────────────────────────────────────────────
-  // Per-bot: engagedPosts, topicStances, and dynamic adaptation trackers
+  // Per-bot: engagedPosts, topicStances, dynamic adaptation, and cooldown trackers
   const botMemoryRef = useRef({});
   const getBotMemory = (botId) => {
     if (!botMemoryRef.current[botId]) {
@@ -225,6 +280,7 @@ export const SimulationProvider = ({ children }) => {
         topicStances: new Map(),  // topicKey → 'agree' | 'disagree'
         ticksWithoutEngagement: 0, // Reinforcement Learning: tracks isolation
         dynamicThreshold: null,    // If set, overrides bot.engagementThreshold
+        lastActionTime: 0,         // Task 2: cooldown — timestamp of last action
       };
     }
     return botMemoryRef.current[botId];
@@ -232,17 +288,31 @@ export const SimulationProvider = ({ children }) => {
 
   // ── Interaction Attribution ──────────────────────────────────────────────────
   // Records which actor (bot or human) performed a like or share on a post.
-  // Deduplicates so the same actor only appears once per action type.
   const recordInteraction = (postId, type, actor) => {
     setPostInteractors(prev => {
-      const existing = prev[postId] || { likes: [], shares: [] };
-      const key = type === 'like' ? 'likes' : 'shares';
-      if (existing[key].some(a => a.id === actor.id)) return prev;
+      const existing = prev[postId] || { likes: [], shares: [], replies: [] };
+      const key = type === 'like' ? 'likes' : type === 'share' ? 'shares' : 'replies';
+      if (existing[key]?.some(a => a.id === actor.id && a.type === type)) return prev;
       return {
         ...prev,
         [postId]: {
           ...existing,
-          [key]: [...existing[key], { id: actor.id, handle: actor.handle, color: actor.color }]
+          [key]: [...(existing[key] || []), { id: actor.id, handle: actor.handle, color: actor.color, type }]
+        }
+      };
+    });
+  };
+
+  const removeInteraction = (postId, type, actorId) => {
+    setPostInteractors(prev => {
+      const existing = prev[postId];
+      if (!existing) return prev;
+      const key = type === 'like' ? 'likes' : type === 'share' ? 'shares' : 'replies';
+      return {
+        ...prev,
+        [postId]: {
+          ...existing,
+          [key]: existing[key].filter(a => a.id !== actorId)
         }
       };
     });
@@ -261,11 +331,45 @@ export const SimulationProvider = ({ children }) => {
         .order('timestamp', { ascending: true });
       if (dbPosts && dbPosts.length > 0) {
         setPostsFromFlat(dbPosts);
+
+        // RECONSTRUCT Social Proof from flat rows
+        const initialInteractors = {};
+        dbPosts.forEach(row => {
+          const post = dbRowToPost(row);
+          if (!initialInteractors[post.id]) initialInteractors[post.id] = { likes: [], shares: [], replies: [] };
+          
+          // Hydrate from parsed meta
+          if (post.meta?.likes?.length > 0) initialInteractors[post.id].likes = post.meta.likes;
+          if (post.meta?.shares?.length > 0) initialInteractors[post.id].shares = post.meta.shares;
+
+          if (row.parent_id) {
+            if (!initialInteractors[row.parent_id]) initialInteractors[row.parent_id] = { likes: [], shares: [], replies: [] };
+            if (!initialInteractors[row.parent_id].replies) initialInteractors[row.parent_id].replies = [];
+            if (!initialInteractors[row.parent_id].replies.some(r => r.id === row.author_id)) {
+              initialInteractors[row.parent_id].replies.push({ 
+                id: row.author_id, handle: row.author_handle, color: row.author_color, type: 'reply' 
+              });
+            }
+          }
+        });
+        setPostInteractors(initialInteractors);
+
+        // Task 3: Catch-up simulation
+        const latestTimestamp = Math.max(...dbPosts.map(p => p.timestamp));
+        const missedMinutes = (Date.now() - latestTimestamp) / 60000;
+        if (missedMinutes > 5) {
+          const catchUpCount = Math.min(3, Math.floor(missedMinutes / 10));
+          isDev && console.log(`[Catch-up] ${missedMinutes.toFixed(1)} min elapsed, running ${catchUpCount} catch-up post(s)`);
+          const shuffledBots = [...BOT_PERSONAS].sort(() => Math.random() - 0.5).slice(0, catchUpCount);
+          shuffledBots.forEach((bot, i) => {
+            setTimeout(() => createNewPost(bot), 3000 + i * 5000);
+          });
+        }
       }
       setIsLoaded(true);
     };
     loadFromSupabase();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Realtime Subscription ──────────────────────────────────────────────────
   useEffect(() => {
@@ -297,23 +401,6 @@ export const SimulationProvider = ({ children }) => {
   }, [isLoaded]);
 
   // ── Tree helpers ────────────────────────────────────────────────────────────
-  const existsInTree = (postsArr, id) => {
-    for (const post of postsArr) {
-      if (post.id === id) return true;
-      if (post.replies?.length > 0 && existsInTree(post.replies, id)) return true;
-    }
-    return false;
-  };
-
-  const dbRowToPost = (row) => ({
-    id: row.id,
-    author: { id: row.author_id, handle: row.author_handle, color: row.author_color },
-    text: row.text,
-    timestamp: row.timestamp,
-    likes: row.likes || 0,
-    shares: row.shares || 0,
-    replies: [],
-  });
 
   const setPostsFromFlat = (flatRows) => {
     const postMap = {};
@@ -346,6 +433,16 @@ export const SimulationProvider = ({ children }) => {
       if (p.replies?.length > 0) return { ...p, replies: updatePostDeep(p.replies, postId, updates) };
       return p;
     });
+  };
+
+  // T4: Remove a post (or nested reply) from the tree by id
+  const removePostDeep = (postsArr, postId) => {
+    return postsArr
+      .filter(p => p.id !== postId)
+      .map(p => p.replies?.length > 0
+        ? { ...p, replies: removePostDeep(p.replies, postId) }
+        : p
+      );
   };
 
   // ── (Extracted logic for bot text and stance evaluation) ──────────────────
@@ -396,12 +493,13 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
 
     if (shouldLike) {
       actions.push(async () => {
-        await new Promise(r => setTimeout(r, 500 + Math.random() * 2000));
+        await new Promise(r => setTimeout(r, 500 + Math.random() * 3000));
         const { data } = await supabase.from('posts').select('likes').eq('id', post.id).single();
         const newLikes = (data?.likes || 0) + 1;
         await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
-        setPosts(prev => updatePostDeep(prev, post.id, { likes: newLikes }));
         recordInteraction(post.id, 'like', bot);
+        updatePersistentMeta(post.id, 'like', bot, false);
+        memory.myInteractions[post.id].liked = true;
       });
     }
 
@@ -411,8 +509,9 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
         const { data } = await supabase.from('posts').select('shares').eq('id', post.id).single();
         const newShares = (data?.shares || 0) + 1;
         await supabase.from('posts').update({ shares: newShares }).eq('id', post.id);
-        setPosts(prev => updatePostDeep(prev, post.id, { shares: newShares }));
         recordInteraction(post.id, 'share', bot);
+        updatePersistentMeta(post.id, 'share', bot, false);
+        memory.myInteractions[post.id].shared = true;
       });
     }
 
@@ -424,6 +523,10 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
         if (!replyText) return;
 
         const replyId = `reply_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const memory = getBotMemory(bot.id);
+        if (!memory.myInteractions) memory.myInteractions = {};
+        memory.myInteractions[post.id] = { ...memory.myInteractions[post.id], replyId };
+        
         const reply = {
           id: replyId,
           author: bot,
@@ -432,6 +535,8 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
           replies: [],
           likes: 0,
           shares: 0,
+          replyToHandle: post.author.handle,
+          replyToId: post.id,
         };
 
         await supabase.from('posts').insert({
@@ -442,11 +547,13 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
           text: replyText,
           timestamp: reply.timestamp,
           parent_id: post.id,
+          reply_to_handle: post.author.handle,
           likes: 0,
           shares: 0,
         });
 
         setPosts(prev => addReplyDeepById(prev, post.id, reply));
+        recordInteraction(post.id, 'reply', bot);
         markActive([bot.id, post.author.id]);
       });
     }
@@ -489,12 +596,14 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   // Each bot independently evaluates, decides, and acts using ML scoring + stance detection
   const runBotIntelligenceTick = async (bot) => {
     if (generatingBots.has(bot.id)) return; // Bot already busy
+    // Task 2: Per-bot cooldown — don't act more than once per 90s
+    const memory = getBotMemory(bot.id);
+    if (Date.now() - memory.lastActionTime < 90000) return;
     setGeneratingBots(prev => new Set(prev).add(bot.id));
 
     try {
       const currentState = stateRef.current;
       const activityModifier = (currentState.curiosityMultiplier / 100) + (currentState.outrageMultiplier / 100);
-      const memory = getBotMemory(bot.id);
       const now = Date.now();
 
       // 1. Maybe organically post a new opinion
@@ -538,6 +647,25 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
 
       // 7. Execute the engagement (like / share / reply based on action matrix)
       await engageWithPost(bot, candidate, stance, confidence, sentiment);
+      // Task 2: Record cooldown timestamp after successful action
+      memory.lastActionTime = Date.now();
+
+      // 8. Chance to Re-evaluate prior engagements (Bot Regret)
+      if (Math.random() < 0.15 && memory.engagedPosts.size > 0) {
+        const pastIds = Array.from(memory.engagedPosts);
+        const randomPastId = pastIds[Math.floor(Math.random() * pastIds.size)];
+        const pastPost = selectPostById(currentState.posts, randomPastId);
+        
+        if (pastPost && memory.myInteractions?.[pastPost.id]) {
+          const { stance: newStance, confidence: newConf } = await evaluateStance(groq, bot, pastPost, currentState.activePrompts);
+          const currentActions = memory.myInteractions[pastPost.id];
+          
+          if (newStance === 'NEUTRAL' || (newStance === 'DISAGREE' && currentActions.liked)) {
+             isDev && console.log(`[Bot Regret] ${bot.handle} is re-evaluating their engagement on "${pastPost.text.slice(0, 30)}..."`);
+             await undoBotEngagement(bot, pastPost);
+          }
+        }
+      }
 
       // ── Dynamic Bot Adaptation (Reinforcement / Epsilon-Greedy logic) ──
       // If a bot acts but hasn't received engagement themselves in a while,
@@ -559,22 +687,117 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   };
 
   // ── Human Interaction APIs ──────────────────────────────────────────────────
+  const updatePersistentMeta = async (postId, type, actor, isRemoval = false) => {
+    // 1. Fetch current row
+    const { data: row } = await supabase.from('posts').select('*').eq('id', postId).single();
+    if (!row) return;
+
+    const post = dbRowToPost(row);
+    let likes = post.meta?.likes || [];
+    let shares = post.meta?.shares || [];
+
+    if (type === 'like') {
+      if (isRemoval) likes = likes.filter(a => a.id !== actor.id);
+      else if (!likes.some(a => a.id === actor.id)) likes.push({ id: actor.id, handle: actor.handle, color: actor.color, type: 'like' });
+    } else if (type === 'share') {
+      if (isRemoval) shares = shares.filter(a => a.id !== actor.id);
+      else if (!shares.some(a => a.id === actor.id)) shares.push({ id: actor.id, handle: actor.handle, color: actor.color, type: 'share' });
+    }
+
+    // Always append to the CLEAN text to avoid metadata chains
+    const newProof = `\n\n[social_proof:${JSON.stringify({ likes, shares })}]`;
+    const updateData = { 
+       text: post.text + newProof
+    };
+    
+    // Try clean columns if they exist
+    try { await supabase.from('posts').update({ likes_json: likes }).eq('id', postId); } catch(e) {}
+    try { await supabase.from('posts').update({ shares_json: shares }).eq('id', postId); } catch(e) {}
+    
+    await supabase.from('posts').update(updateData).eq('id', postId);
+  };
+
   const likePost = async (postId, authorId) => {
+    // T2: Toggle like — unlike if already liked, like if not
+    const alreadyLiked = humanInteractionsRef.current.liked.has(postId);
     const { data } = await supabase.from('posts').select('likes').eq('id', postId).single();
-    const newLikes = (data?.likes || 0) + 1;
-    await supabase.from('posts').update({ likes: newLikes }).eq('id', postId);
-    setPosts(prev => updatePostDeep(prev, postId, { likes: newLikes }));
-    recordInteraction(postId, 'like', USER_PERSONA);
-    markActive([authorId]);
+    if (alreadyLiked) {
+      // Unlike
+      humanInteractionsRef.current.liked.delete(postId);
+      setHumanLiked(new Set(humanInteractionsRef.current.liked));
+      const newLikes = Math.max(0, (data?.likes || 0) - 1);
+      await supabase.from('posts').update({ likes: newLikes }).eq('id', postId);
+      setPosts(prev => updatePostDeep(prev, postId, { likes: newLikes }));
+      removeInteraction(postId, 'like', USER_PERSONA.id);
+      updatePersistentMeta(postId, 'like', USER_PERSONA, true);
+    } else {
+      // Like
+      humanInteractionsRef.current.liked.add(postId);
+      setHumanLiked(new Set(humanInteractionsRef.current.liked));
+      const newLikes = (data?.likes || 0) + 1;
+      await supabase.from('posts').update({ likes: newLikes }).eq('id', postId);
+      setPosts(prev => updatePostDeep(prev, postId, { likes: newLikes }));
+      recordInteraction(postId, 'like', USER_PERSONA);
+      updatePersistentMeta(postId, 'like', USER_PERSONA, false);
+      markActive([authorId]);
+    }
   };
 
   const sharePost = async (postId, authorId) => {
+    // T2: Toggle share — unshare if already shared
+    const alreadyShared = humanInteractionsRef.current.shared.has(postId);
     const { data } = await supabase.from('posts').select('shares').eq('id', postId).single();
-    const newShares = (data?.shares || 0) + 1;
-    await supabase.from('posts').update({ shares: newShares }).eq('id', postId);
-    setPosts(prev => updatePostDeep(prev, postId, { shares: newShares }));
-    recordInteraction(postId, 'share', USER_PERSONA);
-    markActive([authorId]);
+    if (alreadyShared) {
+      // Unshare
+      humanInteractionsRef.current.shared.delete(postId);
+      setHumanShared(new Set(humanInteractionsRef.current.shared));
+      const newShares = Math.max(0, (data?.shares || 0) - 1);
+      await supabase.from('posts').update({ shares: newShares }).eq('id', postId);
+      setPosts(prev => updatePostDeep(prev, postId, { shares: newShares }));
+      removeInteraction(postId, 'share', USER_PERSONA.id);
+      updatePersistentMeta(postId, 'share', USER_PERSONA, true);
+    } else {
+      // Share
+      humanInteractionsRef.current.shared.add(postId);
+      setHumanShared(new Set(humanInteractionsRef.current.shared));
+      const newShares = (data?.shares || 0) + 1;
+      await supabase.from('posts').update({ shares: newShares }).eq('id', postId);
+      setPosts(prev => updatePostDeep(prev, postId, { shares: newShares }));
+      recordInteraction(postId, 'share', USER_PERSONA);
+      updatePersistentMeta(postId, 'share', USER_PERSONA, false);
+      markActive([authorId]);
+    }
+  };
+
+  const createHumanReply = async (parentPost, replyText) => {
+    if (!replyText?.trim()) return;
+    const replyId = `reply_${Date.now()}_human`;
+    const reply = {
+      id: replyId,
+      author: USER_PERSONA,
+      text: replyText.trim(),
+      timestamp: Date.now(),
+      replies: [],
+      likes: 0,
+      shares: 0,
+      replyToHandle: parentPost.author.handle,
+      replyToId: parentPost.id,
+    };
+    await supabase.from('posts').insert({
+      id: replyId,
+      author_id: USER_PERSONA.id,
+      author_handle: USER_PERSONA.handle,
+      author_color: USER_PERSONA.color,
+      text: reply.text,
+      timestamp: reply.timestamp,
+      parent_id: parentPost.id,
+      reply_to_handle: parentPost.author.handle,
+      likes: 0,
+      shares: 0,
+    });
+    setPosts(prev => addReplyDeepById(prev, parentPost.id, reply));
+    recordInteraction(parentPost.id, 'reply', USER_PERSONA);
+    markActive([parentPost.author.id]);
   };
 
   const createHumanPost = async (text) => {
@@ -599,6 +822,18 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       if (existsInTree(prev, postId)) return prev;
       return [newPost, ...prev];
     });
+  };
+
+  // T4: Delete a post or reply from Supabase and local state
+  const deletePost = async (postId) => {
+    await supabase.from('posts').delete().eq('id', postId);
+    setPosts(prev => removePostDeep(prev, postId));
+  };
+
+  // T4: Edit the text of a post or reply (human only — UI enforces this)
+  const editPost = async (postId, newText) => {
+    await supabase.from('posts').update({ text: newText, edited: true }).eq('id', postId);
+    setPosts(prev => updatePostDeep(prev, postId, { text: newText, edited: true }));
   };
 
   const createCustomBot = async (handle, color, systemPrompt) => {
@@ -636,9 +871,51 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
     setActiveBots(prev => prev.map(b => botIds.includes(b.id) ? { ...b, lastActive: now } : b));
   };
 
+  const selectPostById = (postsArr, id) => {
+    for (const p of postsArr) {
+      if (p.id === id) return p;
+      const found = selectPostById(p.replies || [], id);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  const undoBotEngagement = async (bot, post) => {
+    const memory = getBotMemory(bot.id);
+    const interactions = memory.myInteractions?.[post.id];
+    if (!interactions) return;
+
+    if (interactions.liked) {
+      const { data } = await supabase.from('posts').select('likes').eq('id', post.id).single();
+      const newLikes = Math.max(0, (data?.likes || 0) - 1);
+      await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
+      setPosts(prev => updatePostDeep(prev, post.id, { likes: newLikes }));
+      removeInteraction(post.id, 'like', bot.id);
+      updatePersistentMeta(post.id, 'like', bot, true);
+      interactions.liked = false;
+    }
+
+    if (interactions.shared) {
+      const { data } = await supabase.from('posts').select('shares').eq('id', post.id).single();
+      const newShares = Math.max(0, (data?.shares || 0) - 1);
+      await supabase.from('posts').update({ shares: newShares }).eq('id', post.id);
+      setPosts(prev => updatePostDeep(prev, post.id, { shares: newShares }));
+      removeInteraction(post.id, 'share', bot.id);
+      updatePersistentMeta(post.id, 'share', bot, true);
+      interactions.shared = false;
+    }
+
+    if (interactions.replyId) {
+      await supabase.from('posts').delete().eq('id', interactions.replyId);
+      setPosts(prev => removePostDeep(prev, interactions.replyId));
+      removeInteraction(post.id, 'reply', bot.id);
+      interactions.replyId = null;
+    }
+  };
+
   // ── Tick Engine ─────────────────────────────────────────────────────────────
-  // Each bot runs its own independent intelligence tick every 20 seconds.
-  // (Increased from 10s to reduce Groq API token consumption.)
+  // Task 2: Each bot runs its own independent tick every 45s (up from 20s).
+  // Per-bot 90s cooldown inside runBotIntelligenceTick prevents burst posting.
   // Bots are staggered (random initial delay) so they don't all fire at once.
   useEffect(() => {
     if (!isLoaded) return;
@@ -650,9 +927,9 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
         // Stagger bot execution with per-bot delay to avoid thundering herd
         setTimeout(() => {
           runBotIntelligenceTick(bot);
-        }, index * 1500 + Math.random() * 3000);
+        }, index * 2000 + Math.random() * 4000);
       });
-    }, 20000);
+    }, 45000);
 
     return () => clearInterval(tickInterval);
   }, [isLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -668,12 +945,17 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       curiosityMultiplier,
       setCuriosityMultiplier,
       createHumanPost,
+      createHumanReply,
+      deletePost,
+      editPost,
       likePost,
       sharePost,
       createCustomBot,
       clearSimulation,
       postInteractors,
       generatingBots,
+      humanLiked,
+      humanShared,
     }}>
       {children}
     </SimulationContext.Provider>

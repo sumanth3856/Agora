@@ -338,9 +338,10 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
+/* Task 8: Mobile-only nav — hidden by default on desktop */
 @media (min-width: 769px) {
   .mobile-nav {
-    display: none;
+    display: none !important;
   }
 }
 
@@ -352,7 +353,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: rgba(0,0,0,0.85);
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
-  display: flex;
+  display: none; /* Task 8: hidden by default; shown only on mobile via media query */
   justify-content: space-around;
   padding: 10px 0;
   padding-bottom: calc(10px + env(safe-area-inset-bottom));
@@ -406,25 +407,33 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--accent-cyan);
   margin-top: 2px;
 }
-/* Typing Indicator */
+/* Task 1: Horizontal typing capsule row — bots side-by-side */
+.typing-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Task 1: Each individual capsule is a compact horizontal pill */
 .typing-indicator {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   background: var(--surface-hover);
-  padding: 8px 16px;
-  border-radius: 20px;
+  padding: 6px 12px;
+  border-radius: 9999px;
   width: fit-content;
-  margin: 12px 0 12px 56px;
   border: 1px solid var(--border);
   animation: pulse 2s infinite ease-in-out;
 }
 
 .typing-indicator span {
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   color: var(--text-secondary);
   font-weight: 500;
-  margin-right: 4px;
+  white-space: nowrap;
 }
 
 .dot {
@@ -435,8 +444,8 @@ input[type="range"]::-webkit-slider-thumb {
   animation: dot-blink 1.4s infinite both;
 }
 
-.dot:nth-child(2) { animation-delay: 0.2s; }
-.dot:nth-child(3) { animation-delay: 0.4s; }
+.dot:nth-child(3) { animation-delay: 0.2s; }
+.dot:nth-child(4) { animation-delay: 0.4s; }
 
 @keyframes dot-blink {
   0% { opacity: 0.2; transform: scale(0.8); }
@@ -449,3 +458,213 @@ input[type="range"]::-webkit-slider-thumb {
   70% { box-shadow: 0 0 0 6px rgba(29, 155, 240, 0); }
   100% { box-shadow: 0 0 0 0 rgba(29, 155, 240, 0); }
 }
+
+/* Task 6: Trend item hover highlight */
+.trend-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  padding: 10px 12px;
+  border-radius: 12px;
+  transition: background-color var(--transition-fast);
+}
+
+.trend-item:hover {
+  background-color: var(--surface-hover);
+}
+
+/* Task 7: Active search filter chip */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 10px;
+  border-radius: 9999px;
+  border: 1px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: rgba(29, 155, 240, 0.08);
+  animation: fadeIn 0.2s ease;
+}
+
+/* T3: Inline reply composer that expands below a post's action bar */
+.inline-reply-box {
+  margin-top: 12px;
+  padding: 12px 0 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.inline-reply-box textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.inline-reply-box textarea:focus {
+  border-bottom-color: var(--accent-cyan);
+}
+
+/* T2/T3: Active reply button highlight */
+.action-btn.active-reply {
+  color: var(--accent-cyan);
+}
+
+.action-btn.active-reply:hover {
+  background: rgba(29, 155, 240, 0.1);
+}
+
+/* T3: Sidebar typing indicator vertical stack */
+.sidebar-typing-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 8px;
+  margin-bottom: 10px;
+  border-radius: 14px;
+  background: rgba(29, 155, 240, 0.06);
+  border: 1px solid rgba(29, 155, 240, 0.12);
+  width: 90%;
+}
+
+.sidebar-typing-stack .typing-indicator {
+  font-size: 0.78rem;
+  padding: 4px 8px;
+  min-width: unset;
+  max-width: 100%;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.modal-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  width: 90%;
+  max-width: 400px;
+  padding: 30px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.modal-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
+.modal-description {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.modal-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.modal-btn-cancel {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.modal-btn-cancel:hover {
+  background: var(--border);
+}
+
+.modal-btn-confirm {
+  background: var(--accent-rose);
+  color: white;
+}
+
+.modal-btn-confirm:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+}
+
+/* ── Shimmer Loading Animations ── */
+@keyframes shimmer {
+  0% { background-position: -468px 0; }
+  100% { background-position: 468px 0; }
+}
+
+.shimmer-wrapper {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 16px;
+  display: flex;
+  gap: 12px;
+}
+
+.shimmer-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #f6f7f8;
+  background-image: linear-gradient(to right, #2a2a2a 0%, #3a3a3a 20%, #2a2a2a 40%, #2a2a2a 100%);
+  background-repeat: no-repeat;
+  background-size: 800px 104px;
+  display: inline-block;
+  position: relative;
+  animation: shimmer 1.5s infinite linear;
+}
+
+.shimmer-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shimmer-line {
+  height: 12px;
+  width: 100%;
+  background: #2a2a2a;
+  background-image: linear-gradient(to right, #2a2a2a 0%, #3a3a3a 20%, #2a2a2a 40%, #2a2a2a 100%);
+  background-repeat: no-repeat;
+  background-size: 800px 104px;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 4px;
+}
+
+.shimmer-line.header { width: 40%; height: 14px; }
+.shimmer-line.title { width: 70%; }
+.shimmer-line.short { width: 30%; }
+

@@ -8,8 +8,10 @@ const getRelativeTime = (timestamp) => {
   if (diffInSeconds < 60) return `${diffInSeconds}s`;
   const diffInMinutes = Math.floor(diffInSeconds / 60);
   if (diffInMinutes < 60) return `${diffInMinutes}m`;
-  const diffInHours = Math.floor(diffInMinutes / 60);
-  if (diffInHours < 24) return `${diffInHours}h`;
+  // Task 5: After 1h show exact time (e.g. "2:34 PM") instead of "Xh"
+  if (diffInMinutes < 1440) {
+    return new Date(timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  }
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
@@ -85,6 +87,22 @@ const useTrendingTopics = (posts, groqInstance) => {
     const topWords = Object.keys(wordScores)
       .map(word => ({ word, score: wordScores[word], interactions: wordEngagement[word] }))
       .sort((a, b) => b.score - a.score)
+      // T4: Filter out single common nouns that are too generic/short for trends
+      .filter(({ word }) => {
+        const GENERIC_SINGLES = new Set([
+          'human', 'people', 'world', 'global', 'society', 'future', 'system',
+          'change', 'issue', 'problem', 'country', 'nation', 'government',
+          'money', 'power', 'years', 'market', 'growth', 'point', 'place',
+          'fact', 'idea', 'thing', 'ways', 'good', 'better', 'worse', 'less',
+          'many', 'every', 'long', 'real', 'true', 'keep', 'work', 'used',
+          'being', 'doing', 'seen', 'made', 'come', 'across', 'between',
+        ]);
+        // Allow bigrams (phrases) through, only filter single-word generics
+        if (!word.includes(' ') && GENERIC_SINGLES.has(word)) return false;
+        // Must be at least 5 chars for single words
+        if (!word.includes(' ') && word.length < 5) return false;
+        return true;
+      })
       .slice(0, 15);
 
     return topWords;
@@ -148,27 +166,84 @@ const HighlightText = memo(({ text, highlight }) => {
 });
 
 // ─── TypingIndicator Component ────────────────────────────────────────────────
+// T3: Now rendered in the left sidebar as a vertical stack
 const TypingIndicator = memo(({ handle, color }) => (
   <div className="typing-indicator animate-entrance">
     <div style={{ 
-      width: '24px', height: '24px', borderRadius: '50%', 
+      width: '22px', height: '22px', borderRadius: '50%', 
       backgroundColor: color, display: 'flex', alignItems: 'center', 
-      justifyContent: 'center', color: '#000', fontWeight: 800, fontSize: '0.65rem',
-      boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)'
+      justifyContent: 'center', color: '#000', fontWeight: 800, fontSize: '0.6rem',
+      boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)', flexShrink: 0
     }}>
       {handle.substring(1, 2).toUpperCase()}
     </div>
-    <span>{handle} is thinking</span>
+    <span>{handle.substring(1)} is thinking</span>
     <div className="dot"></div>
     <div className="dot"></div>
     <div className="dot"></div>
   </div>
 ));
 
+// ─── ShimmerPost: Skeleton loader for posts ───────────────────────────────────
+const ShimmerPost = memo(() => (
+  <div className="shimmer-wrapper">
+    <div className="shimmer-avatar"></div>
+    <div className="shimmer-content">
+      <div className="shimmer-line header"></div>
+      <div className="shimmer-line"></div>
+      <div className="shimmer-line title"></div>
+      <div className="shimmer-line short"></div>
+    </div>
+  </div>
+));
+
+// ─── UIModal Component ────────────────────────────────────────────────────────
+const UIModal = ({ isOpen, onClose, title, description, onConfirm, confirmText = 'Confirm', cancelText = 'Cancel' }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <h2 className="modal-title">{title}</h2>
+        <p className="modal-description">{description}</p>
+        <div className="modal-actions">
+          <button className="modal-btn modal-btn-cancel" onClick={onClose}>{cancelText}</button>
+          <button className="modal-btn modal-btn-confirm" onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── SocialPost Component ─────────────────────────────────────────────────────
 // showThreadLine: if true, draws the vertical thread line below the avatar
-const SocialPost = memo(({ post, likePost, sharePost, searchQuery, showThreadLine = false, interactors }) => {
-  const hasInteractors = interactors?.likes?.length > 0 || interactors?.shares?.length > 0;
+const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, editPost, searchQuery, showThreadLine = false, interactors, humanLiked, humanShared, isReply = false, onViewInThread }) => {
+  const hasInteractors = interactors?.likes?.length > 0 || interactors?.shares?.length > 0 || interactors?.replies?.length > 0;
+  const [showReplyBox, setShowReplyBox] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(post.text);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const replyInputRef = useRef(null);
+  const isOwn = post.author.id === 'human_user';
+
+  const handleReplySubmit = () => {
+    if (!replyText.trim()) return;
+    replyPost(post, replyText.trim());
+    setReplyText('');
+    setShowReplyBox(false);
+  };
+
+  const handleReplyOpen = (e) => {
+    e.stopPropagation();
+    setShowReplyBox(s => !s);
+    setTimeout(() => replyInputRef.current?.focus(), 50);
+  };
+
+  const handleEditSubmit = () => {
+    if (!editText.trim() || editText === post.text) { setIsEditing(false); return; }
+    editPost(post.id, editText.trim());
+    setIsEditing(false);
+  };
 
   const formatActors = (actors) => {
     if (!actors || actors.length === 0) return '';
@@ -177,23 +252,18 @@ const SocialPost = memo(({ post, likePost, sharePost, searchQuery, showThreadLin
     return `${actors[0].handle} and ${actors.length - 1} others`;
   };
 
+  const isHumanLiked = humanLiked?.has(post.id);
+
   return (
     <div className="post-card animate-entrance">
       {/* Left Column: Avatar & Thread Line */}
       <div className="post-avatar-col">
         <div style={{ 
-          width: '44px', 
-          height: '44px', 
-          borderRadius: '50%', 
+          width: '44px', height: '44px', borderRadius: '50%', 
           backgroundColor: post.author.color,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#000',
-          fontWeight: 800,
-          fontSize: '1.1rem',
-          flexShrink: 0,
-          boxShadow: `inset 0 0 0 2px rgba(0,0,0,0.3)`
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#000', fontWeight: 800, fontSize: '1.1rem',
+          flexShrink: 0, boxShadow: `inset 0 0 0 2px rgba(0,0,0,0.3)`
         }}>
           {post.author.handle.substring(1, 2).toUpperCase()}
         </div>
@@ -202,98 +272,169 @@ const SocialPost = memo(({ post, likePost, sharePost, searchQuery, showThreadLin
 
       {/* Right Column: Content */}
       <div className="post-content-col" style={{ paddingBottom: '8px' }}>
+        {/* T5: Replying-to attribution */}
+        {isReply && post.replyToHandle && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5">
+              <polyline points="15 14 9 8 15 2" />
+              <path d="M9 8H19a2 2 0 0 1 2 2v7" />
+            </svg>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Replying to{' '}
+              <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>{post.replyToHandle}</span>
+            </span>
+          </div>
+        )}
+
+        {/* T2: View-in-thread link for search results */}
+        {onViewInThread && (
+          <button
+            onClick={onViewInThread}
+            style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', padding: '0 0 4px 0', textAlign: 'left' }}
+          >
+            ⤷ View in thread
+          </button>
+        )}
+
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '1rem' }}>
-            {post.author.id === 'human_user' ? 'Me' : post.author.handle.substring(1)}
+            {isOwn ? 'Me' : post.author.handle.substring(1)}
           </span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            {post.author.handle}
-          </span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{post.author.handle}</span>
           <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>·</span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            {getRelativeTime(post.timestamp)}
-          </span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{getRelativeTime(post.timestamp)}</span>
+          {post.edited && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic' }}>(edited)</span>}
+
+          {/* Delete/Edit Controls */}
+            {isOwn && (
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => { setEditText(post.text); setIsEditing(!isEditing); }} 
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '5px' }}
+                  title="Edit Post"
+                >
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setShowDeleteModal(true); }} 
+                  style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', opacity: 0.6, cursor: 'pointer', padding: '5px' }}
+                  title="Delete Post"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                </button>
+              </div>
+            )}
         </div>
 
-        {/* Text Area */}
-        <p style={{ 
-          color: 'var(--text-primary)', 
-          fontSize: '1rem', 
-          lineHeight: '1.5',
-          marginBottom: '12px',
-          whiteSpace: 'pre-wrap',
-          wordWrap: 'break-word'
-        }}>
-          <HighlightText text={post.text} highlight={searchQuery} />
-        </p>
+        {/* Delete Confirmation Modal */}
+        <UIModal 
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          title="Delete Post?"
+          description="Are you sure you want to delete this post? This action cannot be undone."
+          onConfirm={() => deletePost(post.id)}
+          confirmText="Delete"
+        />
+
+        {/* Post Text / Edit Field */}
+        {isEditing ? (
+          <div style={{ marginBottom: '12px' }}>
+            <textarea
+              autoFocus
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSubmit(); } if (e.key === 'Escape') setIsEditing(false); }}
+              rows="3"
+              style={{ width: '100%', fontSize: '1rem', lineHeight: '1.5', padding: '8px', borderRadius: '8px', border: '1px solid var(--accent-cyan)', background: 'var(--surface-hover)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }}
+            />
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setIsEditing(false)} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: '9999px', padding: '4px 14px', fontSize: '0.85rem', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleEditSubmit} className="btn-primary" style={{ padding: '4px 18px', fontSize: '0.85rem', backgroundColor: 'var(--accent-cyan)', color: '#fff' }}>Save</button>
+            </div>
+          </div>
+        ) : (
+          <p style={{ color: 'var(--text-primary)', fontSize: '1rem', lineHeight: '1.5', marginBottom: '12px', whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>
+            <HighlightText text={post.text} highlight={searchQuery} />
+          </p>
+        )}
 
         {/* Action Bar */}
-        <div style={{ display: 'flex', gap: '36px', marginTop: '8px' }}>
-          <button className="action-btn reply" onClick={(e) => { e.stopPropagation(); }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-            <span style={{ fontSize: '0.9rem', minWidth: '16px' }}>{post.replies ? post.replies.length : 0}</span>
+        <div style={{ display: 'flex', gap: '28px', marginTop: '8px' }}>
+          <button className={`action-btn reply${showReplyBox ? ' active-reply' : ''}`} onClick={handleReplyOpen} title="Reply">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill={showReplyBox ? 'rgba(29,155,240,0.15)' : 'none'} stroke={showReplyBox ? 'var(--accent-cyan)' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+            </svg>
+            <span style={{ fontSize: '0.9rem', minWidth: '16px', color: showReplyBox ? 'var(--accent-cyan)' : 'inherit' }}>{post.replies?.length > 0 ? post.replies.length : ''}</span>
           </button>
 
-          <button className="action-btn share" onClick={(e) => { e.stopPropagation(); sharePost(post.id, post.author.id); }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+          <button className="action-btn share" onClick={(e) => { e.stopPropagation(); sharePost(post.id, post.author.id); }} style={{ opacity: humanShared?.has(post.id) ? 0.6 : 1, cursor: humanShared?.has(post.id) ? 'default' : 'pointer' }} title={humanShared?.has(post.id) ? 'Reposted' : 'Repost'}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill={humanShared?.has(post.id) ? 'var(--accent-cyan)' : 'none'} stroke={humanShared?.has(post.id) ? 'var(--accent-cyan)' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+              <path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+            </svg>
             <span style={{ fontSize: '0.9rem', minWidth: '16px' }}>{post.shares > 0 ? post.shares : ''}</span>
           </button>
 
-          <button className="action-btn like" onClick={(e) => { e.stopPropagation(); likePost(post.id, post.author.id); }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-            <span style={{ fontSize: '0.9rem', minWidth: '16px' }}>{post.likes > 0 ? post.likes : ''}</span>
+          <button className="action-btn like" onClick={(e) => { e.stopPropagation(); likePost(post.id, post.author.id); }} title={isHumanLiked ? 'Unlike' : 'Like'}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill={isHumanLiked ? 'var(--accent-rose)' : 'none'} stroke={isHumanLiked ? 'var(--accent-rose)' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+            </svg>
+            <span style={{ fontSize: '0.9rem', minWidth: '16px', color: isHumanLiked ? 'var(--accent-rose)' : 'inherit' }}>{post.likes > 0 ? post.likes : ''}</span>
           </button>
         </div>
 
-        {/* ── Interaction Attribution: who liked / shared this post ── */}
-        {hasInteractors && (
-          <div style={{ 
-            marginTop: '10px', 
-            paddingTop: '10px', 
-            borderTop: '1px solid var(--border)', 
-            display: 'flex', 
-            flexDirection: 'column', 
-            gap: '5px',
-            animation: 'fadeIn 0.4s ease-out'
-          }}>
-            {interactors?.likes?.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                {/* Mini avatar stack */}
-                <div style={{ display: 'flex' }}>
-                  {interactors.likes.slice(0, 3).map((actor, idx) => (
-                    <div key={actor.id} title={actor.handle} style={{
-                      width: '18px', height: '18px', borderRadius: '50%',
-                      backgroundColor: actor.color,
-                      border: '1.5px solid var(--bg-card)',
-                      marginLeft: idx > 0 ? '-5px' : 0,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '0.55rem', fontWeight: 800, color: '#000',
-                      position: 'relative', zIndex: 3 - idx,
-                    }}>
-                      {actor.handle.substring(1, 2).toUpperCase()}
-                    </div>
-                  ))}
+        {/* Inline Reply Composer */}
+        {showReplyBox && (
+          <div className="inline-reply-box animate-entrance">
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#fff', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.85rem', flexShrink: 0 }}>M</div>
+              <div style={{ flex: 1 }}>
+                <textarea
+                  ref={replyInputRef}
+                  placeholder={`Reply to ${post.author.handle}...`}
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReplySubmit(); }
+                    if (e.key === 'Escape') { setShowReplyBox(false); setReplyText(''); }
+                  }}
+                  rows="2"
+                  style={{ fontSize: '0.95rem', minHeight: '52px', padding: '8px 0', fontWeight: 500 }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+                  <button onClick={() => { setShowReplyBox(false); setReplyText(''); }} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: '9999px', padding: '5px 14px', fontSize: '0.85rem', cursor: 'pointer' }}>Cancel</button>
+                  <button className="btn-primary" disabled={!replyText.trim()} onClick={handleReplySubmit} style={{ padding: '5px 18px', fontSize: '0.85rem', backgroundColor: 'var(--accent-cyan)', color: '#fff' }}>Reply</button>
                 </div>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                  Liked by{' '}
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                    {formatActors(interactors.likes)}
-                  </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Interaction Attribution (Detailed) */}
+        {hasInteractors && (
+          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '6px', animation: 'fadeIn 0.4s ease-out' }}>
+            {interactors?.likes?.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: 'var(--accent-rose)', filter: 'grayscale(1)', fontSize: '0.8rem' }}>❤️</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: '1.4' }}>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatActors(interactors.likes)}</span> liked this
                 </span>
               </div>
             )}
             {interactors?.shares?.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
-                  <path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
-                </svg>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                  Reposted by{' '}
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                    {formatActors(interactors.shares)}
-                  </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: 'var(--accent-cyan)', filter: 'grayscale(1)', fontSize: '0.8rem' }}>🔁</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: '1.4' }}>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatActors(interactors.shares)}</span> shared this
+                </span>
+              </div>
+            )}
+            {interactors?.replies?.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>💬</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: '1.4' }}>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatActors(interactors.replies)}</span> replied
                 </span>
               </div>
             )}
@@ -319,31 +460,66 @@ const flattenReplies = (replies) => {
 };
 
 // ─── ThreadBlock: parent post + flat threaded replies (Twitter/X style) ────────
-const ThreadBlock = memo(({ post, likePost, sharePost, searchQuery, postInteractors }) => {
+// T1: Shows first 2 replies by default; if >10 total shows 5; expandable
+const INITIAL_REPLIES = 2;
+const BATCH_SIZE = 5;
+
+const ThreadBlock = memo(({ post, likePost, sharePost, replyPost, deletePost, editPost, searchQuery, postInteractors, humanLiked, humanShared }) => {
   const allReplies = useMemo(() => flattenReplies(post.replies || []), [post.replies]);
+  const total = allReplies.length;
+  const initialShow = total > 10 ? BATCH_SIZE : INITIAL_REPLIES;
+  const [visibleCount, setVisibleCount] = useState(initialShow);
+
+  // Reset when replies grow from another session
+  useEffect(() => {
+    setVisibleCount(total > 10 ? BATCH_SIZE : INITIAL_REPLIES);
+  }, [total]);
+
+  const visibleReplies = allReplies.slice(0, visibleCount);
+  const remaining = total - visibleCount;
+  const nextBatch = Math.min(BATCH_SIZE, remaining);
+
+  const sharedProps = { likePost, sharePost, replyPost, deletePost, editPost, searchQuery, humanLiked, humanShared };
 
   return (
     <div className="post-container">
       <div className="threaded-replies-container">
         <SocialPost
           post={post}
-          likePost={likePost}
-          sharePost={sharePost}
-          searchQuery={searchQuery}
-          showThreadLine={allReplies.length > 0}
+          {...sharedProps}
+          showThreadLine={visibleReplies.length > 0}
           interactors={postInteractors?.[post.id]}
+          isReply={false}
         />
-        {allReplies.map((reply, i) => (
+        {visibleReplies.map((reply, i) => (
           <SocialPost
             key={reply.id}
             post={reply}
-            likePost={likePost}
-            sharePost={sharePost}
-            searchQuery={searchQuery}
-            showThreadLine={i < allReplies.length - 1}
+            {...sharedProps}
+            showThreadLine={i < visibleReplies.length - 1 || remaining > 0}
             interactors={postInteractors?.[reply.id]}
+            isReply={true}
           />
         ))}
+
+        {/* T1: View more replies button */}
+        {remaining > 0 && (
+          <div style={{ padding: '8px 0 8px 56px' }}>
+            <button
+              onClick={() => setVisibleCount(c => c + BATCH_SIZE)}
+              style={{
+                background: 'none', border: 'none', color: 'var(--accent-cyan)',
+                fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', padding: '4px 0',
+                display: 'flex', alignItems: 'center', gap: '5px'
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+              View {nextBatch} more {nextBatch === 1 ? 'reply' : 'replies'}{remaining > nextBatch ? ` (${remaining} left)` : ''}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -403,11 +579,15 @@ const Composer = ({ createHumanPost }) => {
 function App() {
   const {
     posts,
+    isLoaded,
     outrageMultiplier,
     setOutrageMultiplier,
     curiosityMultiplier,
     setCuriosityMultiplier,
     createHumanPost,
+    createHumanReply,
+    deletePost,
+    editPost,
     likePost: contextLikePost,
     sharePost: contextSharePost,
     createCustomBot,
@@ -415,12 +595,15 @@ function App() {
     postInteractors,
     generatingBots,
     activeBots,
+    humanLiked,
+    humanShared,
   } = useSimulation();
 
   const [activeTab, setActiveTab] = useState('home');
   const [newBotHandle, setNewBotHandle] = useState('');
   const [newBotColor, setNewBotColor] = useState('#1d9bf0');
   const [newBotPrompt, setNewBotPrompt] = useState('');
+  const [showWipeModal, setShowWipeModal] = useState(false);
 
   // Task 6: Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -493,45 +676,117 @@ function App() {
     contextSharePost(postId, authorId);
   }, [contextSharePost]);
 
+  const handleReplyPost = useCallback((parentPost, text) => {
+    createHumanReply(parentPost, text);
+  }, [createHumanReply]);
+
+  // T4: Delete a post (human's own only — context validates)
+  const handleDeletePost = useCallback((postId) => {
+    deletePost(postId);
+  }, [deletePost]);
+
+  // T4: Edit a post text (human's own only)
+  const handleEditPost = useCallback((postId, newText) => {
+    editPost(postId, newText);
+  }, [editPost]);
+
   const handleCreateHumanPost = useCallback((text) => {
     createHumanPost(text);
     popBuffer();
   }, [createHumanPost]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Task 6: Filter feed by search query
-  const displayedPosts = useMemo(() => {
-    if (!searchQuery.trim()) return feedPosts;
+  // T2: Flat search results — shows individual matching posts AND replies
+  // In search mode: each matching post or reply appears as its own card with
+  // a "view in thread" button; no full thread expansion.
+  const { displayedPosts, searchResults } = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return { displayedPosts: feedPosts, searchResults: null };
+    }
     const q = searchQuery.toLowerCase();
-    return feedPosts.filter(post => {
-      const inText = post.text?.toLowerCase().includes(q);
-      const inHandle = post.author?.handle?.toLowerCase().includes(q);
-      // Also search in replies
-      const inReplies = post.replies?.some(r =>
-        r.text?.toLowerCase().includes(q) || r.author?.handle?.toLowerCase().includes(q)
-      );
-      return inText || inHandle || inReplies;
+
+    // Flatten all posts + replies into a flat list with parent context
+    const flatItems = [];
+    feedPosts.forEach(post => {
+      if (post.text?.toLowerCase().includes(q) || post.author?.handle?.toLowerCase().includes(q)) {
+        flatItems.push({ item: post, parentPost: null });
+      }
+      const replies = flattenReplies(post.replies || []);
+      replies.forEach(reply => {
+        if (reply.text?.toLowerCase().includes(q) || reply.author?.handle?.toLowerCase().includes(q)) {
+          flatItems.push({ item: reply, parentPost: post });
+        }
+      });
     });
+
+    return { displayedPosts: feedPosts, searchResults: flatItems };
   }, [feedPosts, searchQuery]);
 
+  const sharedPostProps = {
+    likePost: handleLikePost,
+    sharePost: handleSharePost,
+    replyPost: handleReplyPost,
+    deletePost: handleDeletePost,
+    editPost: handleEditPost,
+    searchQuery,
+    postInteractors,
+    humanLiked,
+    humanShared,
+  };
+
   const renderedFeedList = useMemo(() => {
+    // T2: Shimmering animation while initial data is loading
+    if (!isLoaded) {
+      return Array(5).fill(0).map((_, i) => <ShimmerPost key={i} />);
+    }
+
+    // T2: Search mode — flat individual results
+    if (searchResults !== null) {
+      if (searchResults.length === 0) {
+        return (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1rem' }}>
+            No posts or replies match "{searchQuery}"
+          </div>
+        );
+      }
+      return searchResults.map(({ item, parentPost }) => (
+        <div key={item.id} className="post-container">
+          <SocialPost
+            post={item}
+            {...sharedPostProps}
+            showThreadLine={false}
+            interactors={postInteractors?.[item.id]}
+            isReply={!!parentPost}
+            onViewInThread={parentPost ? () => {
+              setSearchQuery('');
+              // Scroll to the parent post after clearing search
+              setTimeout(() => {
+                const el = document.getElementById(`post-${parentPost.id}`);
+                el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }, 100);
+            } : undefined}
+          />
+        </div>
+      ));
+    }
+
+    // Normal feed mode — full ThreadBlock with pagination
     if (!displayedPosts || displayedPosts.length === 0) {
       return (
         <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1rem' }}>
-          {searchQuery ? `No posts match "${searchQuery}"` : 'Silence in the network. Ignite a conversation.'}
+          Silence in the network. Ignite a conversation.
         </div>
       );
     }
     return displayedPosts.map(post => (
-      <ThreadBlock 
-        key={post.id} 
-        post={post} 
-        likePost={handleLikePost} 
-        sharePost={handleSharePost} 
-        searchQuery={searchQuery}
-        postInteractors={postInteractors}
+      <ThreadBlock
+        key={post.id}
+        id={`post-${post.id}`}
+        post={post}
+        {...sharedPostProps}
       />
     ));
-  }, [displayedPosts, handleLikePost, handleSharePost, searchQuery, postInteractors]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedPosts, searchResults, searchQuery, postInteractors, humanLiked, humanShared]);
 
 
   return (
@@ -573,6 +828,15 @@ function App() {
           >
             Post
           </button>
+
+          {/* T1: Bot typing indicators moved here: below Post button */}
+          {activeBots.filter(b => generatingBots.has(b.id)).length > 0 && (
+            <div className="sidebar-typing-stack" style={{ marginTop: '16px' }}>
+              {activeBots.filter(b => generatingBots.has(b.id)).map(bot => (
+                <TypingIndicator key={bot.id} handle={bot.handle} color={bot.color} />
+              ))}
+            </div>
+          )}
         </aside>
 
         {/* Center Feed Column */}
@@ -586,11 +850,19 @@ function App() {
 
           {/* Feed Container */}
           <div style={{ position: 'relative' }}>
-            
-            {/* Show Bots Typing (Task 3) */}
-            {activeBots.filter(b => generatingBots.has(b.id)).map(bot => (
-              <TypingIndicator key={bot.id} handle={bot.handle} color={bot.color} />
-            ))}
+
+            {/* T2: Search filter chip */}
+            {searchQuery && (
+              <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  {(searchResults?.length ?? 0)} result{(searchResults?.length ?? 0) !== 1 ? 's' : ''} for
+                </span>
+                <span className="filter-chip">
+                  🔍 {searchQuery}
+                  <button onClick={() => setSearchQuery('')} aria-label="Clear filter" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 0 0 4px', fontSize: '0.85rem', lineHeight: 1 }}>✕</button>
+                </span>
+              </div>
+            )}
 
             {/* Show New Posts Pill */}
             {bufferedPosts.length > 0 && (
@@ -679,12 +951,21 @@ function App() {
             <section style={{ borderTop: '1px solid var(--border)', paddingTop: '24px', paddingBottom: '80px' }}>
               <h3 style={{ fontSize: '1.2rem', color: 'var(--accent-rose)', fontWeight: 800, marginBottom: '12px' }}>Danger Zone</h3>
               <button
-                onClick={() => confirm("Wipe the entire network and delete all cloud data?") && clearSimulation()}
+                onClick={() => setShowWipeModal(true)}
                 style={{ background: 'transparent', border: '1px solid var(--accent-rose)', color: 'var(--accent-rose)', padding: '14px 20px', borderRadius: '12px', cursor: 'pointer', fontSize: '1rem', fontWeight: 700, width: '100%' }}
               >
                 Reset Network Data
               </button>
             </section>
+
+            <UIModal 
+              isOpen={showWipeModal}
+              onClose={() => setShowWipeModal(false)}
+              title="Wipe the Network?"
+              description="This will permanently delete ALL posts and interaction data from the cloud. This action is irreversible."
+              onConfirm={clearSimulation}
+              confirmText="Wipe Everything"
+            />
           </div>
         </main>
 
@@ -712,27 +993,52 @@ function App() {
             )}
           </div>
 
-          {/* Task 3 & 7: Trending Topics with real counts and ML categories */}
-          <div className="sidebar-card" style={{ padding: '20px' }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '20px', fontWeight: 800 }}>Trends for you</h3>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Task 6 & 7: Redesigned Trending Topics panel */}
+          <div className="sidebar-card" style={{ padding: '16px 12px' }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '14px', fontWeight: 800, padding: '0 8px' }}>🔥 Trends for you</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               {trendingTopics.length === 0 ? (
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Awaiting network signals...</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '8px' }}>Awaiting network signals...</span>
               ) : (
                 trendingTopics.map((topic, index) => (
                   <div
                     key={topic.word}
-                    style={{ display: 'flex', flexDirection: 'column', gap: '3px', cursor: 'pointer' }}
-                    onClick={() => setSearchQuery(topic.word.toLowerCase().split(' ')[0])}
+                    className="trend-item"
+                    onClick={() => {
+                      // Task 7: Set full topic phrase as search + switch to home tab
+                      setSearchQuery(topic.word);
+                      setActiveTab('home');
+                    }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{index + 1} · {topic.category}</span>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+                    {/* Row 1: rank + category pill */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{
+                          width: '20px', height: '20px', borderRadius: '50%',
+                          background: `hsl(${index * 60}, 70%, 55%)`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '0.65rem', fontWeight: 800, color: '#000', flexShrink: 0
+                        }}>{index + 1}</span>
+                        <span style={{
+                          fontSize: '0.7rem', fontWeight: 600,
+                          padding: '1px 7px', borderRadius: '9999px',
+                          background: 'rgba(29, 155, 240, 0.12)',
+                          color: 'var(--accent-cyan)'
+                        }}>{topic.category}</span>
+                      </div>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2">
+                        <circle cx="12" cy="12" r="1"></circle>
+                        <circle cx="12" cy="5" r="1"></circle>
+                        <circle cx="12" cy="19" r="1"></circle>
+                      </svg>
                     </div>
-                    <span style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>{topic.word}</span>
-                    {/* Task 3: Real interaction count — no more fake multiplier */}
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                    {/* Row 2: topic name */}
+                    <span style={{ fontWeight: 800, fontSize: '0.97rem', color: 'var(--text-primary)', display: 'block', lineHeight: 1.3 }}>
+                      {topic.word}
+                    </span>
+                    {/* Row 3: interaction count */}
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '2px', display: 'block' }}>
                       {topic.interactions > 0
                         ? `${topic.interactions} interaction${topic.interactions !== 1 ? 's' : ''}`
                         : 'Emerging topic'}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { scoreCandidatePost, selectCandidatePost, evaluateStance, generateBotText } from './SimulationContext';
+import { scoreCandidatePost, selectCandidatePost, evaluateStance, generateBotText, dbRowToPost, existsInTree } from './SimulationContext';
 
 vi.mock('./supabaseClient', () => ({
   supabase: {
@@ -183,6 +183,58 @@ describe('SimulationContext AI Engine', () => {
       
       const result = await evaluateStance(mockGroq, mockBot, mockPost, mockPrompts);
       expect(result).toEqual({ stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' });
+    });
+  });
+
+  describe('dbRowToPost Utility', () => {
+    it('parses raw database rows correctly', () => {
+      const row = {
+        id: '1', author_id: 'bot1', author_handle: '@bot', author_color: 'red',
+        text: 'Hello world', timestamp: 12345, likes: 2, shares: 1
+      };
+      
+      const post = dbRowToPost(row);
+      expect(post.id).toBe('1');
+      expect(post.author.handle).toBe('@bot');
+      expect(post.text).toBe('Hello world');
+      expect(post.likes).toBe(2);
+    });
+
+    it('extracts and strips hidden social proof metadata', () => {
+      const metaJson = JSON.stringify({ likes: [{id: 'user1', handle: '@fan'}], shares: [] });
+      const row = {
+        id: '2', author_id: 'bot1', author_handle: '@bot', author_color: 'red',
+        text: `Check this out! [social_proof:${metaJson}]`,
+        timestamp: 12345
+      };
+      
+      const post = dbRowToPost(row);
+      expect(post.text).toBe('Check this out!');
+      expect(post.meta.likes).toHaveLength(1);
+      expect(post.meta.likes[0].handle).toBe('@fan');
+    });
+
+    it('prefers JSONB columns (likes_json/shares_json) if available', () => {
+      const row = {
+        id: '3', text: 'Clean text',
+        likes_json: [{id: 'user2', handle: '@prefer'}],
+        shares_json: []
+      };
+      const post = dbRowToPost(row);
+      expect(post.meta.likes[0].handle).toBe('@prefer');
+    });
+  });
+
+  describe('existsInTree Utility', () => {
+    it('finds items in nested reply threads', () => {
+      const tree = [
+        { id: 'p1', replies: [{ id: 'p2', replies: [{ id: 'p3', replies: [] }] }] },
+        { id: 'p4', replies: [] }
+      ];
+      
+      expect(existsInTree(tree, 'p3')).toBe(true);
+      expect(existsInTree(tree, 'p4')).toBe(true);
+      expect(existsInTree(tree, 'p99')).toBe(false);
     });
   });
 });

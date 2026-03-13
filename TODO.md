@@ -1,22 +1,32 @@
 # StanceBot TODOs
 
-Based on the [analysis report](analysis_results.md), here are the recommended next steps and future enhancements for the project:
+## ✅ Completed Recently
+- [x] **Keyword Highlighting**: Search terms are highlighted in post/reply text using `HighlightText`.
+- [x] **Paginated Replies**: Implemented "View more" logic to handle long threads without UI clutter.
+- [x] **Social Features**: Human and Bot ability to Edit, Delete, and Like/Unlike posts.
+- [x] **Sidebar Reorganization**: Moved typing indicators to a dedicated vertical stack in the left nav sidebar.
 
-## Priority 1: Testing & Reliability
-- [ ] **Setup Testing Framework**: Install and configure Vitest and React Testing Library.
-- [ ] **Unit Tests for AI Engine**: Write tests for the core logic in `SimulationContext.jsx`.
-  - [ ] Test `scoreCandidatePost` to ensure posts are prioritized correctly based on recency, controversy, and engagement.
-  - [ ] Mock the Groq LLM API and test `evaluateStance` to handle responses correctly and fall back to a `NEUTRAL` stance on failure.
-  - [ ] Validate the bot memory consistency mapping to ensure bots do not contradict their prior stances.
-- [ ] **Integration Tests**: Verify that the Supabase real-time subscription properly synchronizes posts and engagement counts across the feed.
+## 🛠️ In Progress / Immediate Next Steps
+- [ ] **Shimmering Loaders**: Add skeletal shimmer animations for better UX during navigation and data fetch.
+- [ ] **Testing & Reliability**:
+  - [ ] **Setup Testing Framework**: Vitest/React Testing Library configuration.
+  - [ ] **Unit Tests**: Coverage for `scoreCandidatePost` and `evaluateStance`.
+  - [ ] **Integration Tests**: Verify Supabase real-time sync reliability.
 
-## Priority 2: UI/UX Enhancements
-- [ ] **Keyword Highlighting**: Highlight the exact extracted keyword in a post/reply when a user searches for a trending topic (Task 1).
-- [ ] **Nested Replies**: Update the post rendering UI to visually nest replies for better readability and detailed visibility (Task 2).
+## 🚀 Future Enhancements (Roadmap)
 
-## Priority 3: Advanced Machine Learning Features (Task 3)
-- [ ] **Advanced Algorithms**: Implement more sophisticated ML algorithms and techniques for evaluating posts, topics, and bot behavior, shifting focus away from immediate deployment.
+### UI/UX & Visualization
+- [ ] **Visual Stance Analytics**: Detailed radar or pie charts showing the distribution of AGREE/DISAGREE stances in a thread.
+- [ ] **Thread Summarization**: Add a "Summarize this debate" button that uses AI to condense 50+ bot replies into a 3-point summary.
+- [ ] **Nested Layout Overhaul**: Advanced visual nesting for deeply threaded debates.
+- [ ] **Rich Media Management**: Support for bots sharing (and generating) relevant images and links.
 
-## Potential Enhancements (Optional)
-- [ ] **User Authentication**: Allow real users to sign up and authenticate via Supabase Auth, enabling personalized feeds and their own memory tracking.
-- [ ] **Custom AI System Prompts**: Create a UI allowing users to dynamically tweak system prompts for individual bots, beyond the currently predefined archetypes.
+### Advanced AI & Simulation
+- [ ] **Persona Variety**: Expand the bot roster with more extreme or niche archetypes (e.g., "The Fact Checker", "The Eternal Optimist", "The Devil's Advocate").
+- [ ] **Long-term Memory**: Give bots persistent "memory" of specific users or past debates across sessions.
+- [ ] **Collaborative Learning**: Bots adjust their "curiosity" and "outrage" triggers based on which posts get the most human engagement.
+
+### Infrastructure & Community
+- [ ] **User Authentication**: Supabase Auth integration for private feeds and personalized bot interactions.
+- [ ] **Presence System**: Real-time "Users currently debating" counter for active threads.
+- [ ] **Custom System Prompts UI**: Allow users to edit or inject custom instructions into a bot's "brain" via the Settings panel.
