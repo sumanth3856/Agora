@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback, memo } from 'react'
-import { useSimulation } from './SimulationContext'
+import { useSimulation, groq } from './SimulationContext'
 import './index.css'
 
 // Helper for human-readable time
@@ -13,43 +13,12 @@ const getRelativeTime = (timestamp) => {
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-// ─── Task 7: ML-Enhanced Trending Topics ─────────────────────────────────────
-// Uses TF-IDF style weighting, recency decay, bigram detection,
-// category tagging, and real interaction counts (likes + shares + replies).
-const CATEGORY_MAP = {
-  Technology: ['tech', 'software', 'algorithm', 'machine', 'learning', 'artificial',
-    'intelligence', 'robot', 'automation', 'crypto', 'blockchain', 'code', 'data',
-    'model', 'neural', 'network', 'programming', 'developer', 'platform', 'digital',
-    'internet', 'computer', 'hardware', 'silicon', 'chip', 'cybersecurity', 'cloud',
-    'saas', 'startup', 'venture', 'open', 'source'],
-  Politics: ['government', 'election', 'vote', 'policy', 'president', 'congress',
-    'senate', 'democrat', 'republican', 'liberal', 'conservative', 'political',
-    'rights', 'freedom', 'democracy', 'protest', 'legislation', 'reform', 'bill',
-    'corruption', 'regulation', 'tax', 'immigration', 'border', 'media', 'propaganda'],
-  Science: ['science', 'research', 'study', 'discovery', 'space', 'nasa', 'climate',
-    'environment', 'biology', 'physics', 'chemistry', 'evolution', 'universe',
-    'quantum', 'theory', 'experiment', 'genome', 'vaccine', 'nuclear', 'energy',
-    'renewable', 'carbon', 'global', 'warming', 'ocean', 'ecosystem'],
-  Culture: ['music', 'movie', 'film', 'artist', 'culture', 'book', 'literature',
-    'podcast', 'celebrity', 'fashion', 'sport', 'game', 'gaming', 'social',
-    'trend', 'viral', 'meme', 'humor', 'comedy', 'drama', 'fiction', 'story',
-    'community', 'society', 'mental', 'health', 'education', 'school'],
-  Economy: ['economy', 'market', 'stock', 'inflation', 'recession', 'jobs', 'trade',
-    'salary', 'income', 'wealth', 'poverty', 'housing', 'rent', 'bank', 'finance',
-    'invest', 'investor', 'capital', 'debt', 'dollar', 'gdp', 'earnings', 'profit',
-    'corporate', 'business', 'labor', 'union'],
-};
-
-const getCategoryForWord = (word) => {
-  const lw = word.toLowerCase();
-  for (const [cat, keywords] of Object.entries(CATEGORY_MAP)) {
-    if (keywords.some(k => lw.includes(k) || k.includes(lw))) return cat;
-  }
-  return null;
-};
-
-const useTrendingTopics = (posts) => {
-  return useMemo(() => {
+// ─── Task 7: ML-Enhanced Trending Topics (Dynamic LLM Clustering) ────────────
+const useTrendingTopics = (posts, groqInstance) => {
+  const [topics, setTopics] = useState([]);
+  
+  // Calculate raw topics from local heuristics
+  const computedRawWords = useMemo(() => {
     if (!posts || posts.length === 0) return [];
 
     const STOP_WORDS = new Set([
@@ -64,19 +33,16 @@ const useTrendingTopics = (posts) => {
       'know', 'really', 'only', 'even', 'those', 'such', 'much', 'should',
       'because', 'now', 'get', 'got', 'let', 'every', 'right', 'want',
       'going', 'actually', 'still', 'always', 'never', 'same', 'way', 'take',
-      // Contractions post-apostrophe-removal (LLM output stripped of quotes/apostrophes)
       'youre', 'cant', 'dont', 'wont', 'isnt', 'arent', 'wasnt', 'werent',
       'hasnt', 'havent', 'hadnt', 'doesnt', 'didnt', 'wouldnt', 'shouldnt',
       'couldnt', 'mustnt', 'thats', 'theres', 'heres', 'whats', 'weve',
       'theyre', 'theyll', 'theyd', 'itll', 'itd', 'ive', 'youd', 'youll',
       'youve', 'hes', 'shes', 'shed', 'hed', 'hell', 'ill', 'lets', 'whos',
-      'wholl', 'whove', 'whod', 'howll', 'howd', 'theyve', 'wasnt', 'id',
     ]);
 
     const now = Date.now();
     const ONE_HOUR = 3600 * 1000;
 
-    // Flatten all posts including replies, compute engagement per post
     const flattenAll = (arr) => arr.reduce((acc, p) => {
       const engagement = (p.likes || 0) + (p.shares || 0) + (p.replies?.length || 0);
       return [...acc, { ...p, engagement }, ...flattenAll(p.replies || [])];
@@ -84,62 +50,117 @@ const useTrendingTopics = (posts) => {
 
     const allPosts = flattenAll(posts);
 
-    // Word scores: TF-IDF style — weighted by engagement + recency
     const wordScores = {};
     const wordEngagement = {};
 
     allPosts.forEach(post => {
       if (!post.text) return;
-      // Recency weight: posts from the last hour get up to 3x boost, decaying over time
       const ageHours = (now - post.timestamp) / ONE_HOUR;
       const recencyWeight = Math.max(0.3, 1 / (1 + ageHours * 0.1));
       const engagementBoost = 1 + Math.log1p(post.engagement || 0);
 
       const tokens = post.text
         .toLowerCase()
-        // Remove apostrophes first so contractions don't fuse into stop words
         .replace(/[''`]/g, '')
         .replace(/[.,/#!$%^&*;:{}=\-_~()"]/g, '')
         .split(/\s+/)
-        // min length 4, not a stop word (including fused contractions), only letters
         .filter(w => w.length > 3 && !STOP_WORDS.has(w) && /^[a-z]+$/.test(w));
 
-      // Unigrams
       tokens.forEach(word => {
         const score = recencyWeight * engagementBoost;
         wordScores[word] = (wordScores[word] || 0) + score;
         wordEngagement[word] = (wordEngagement[word] || 0) + (post.engagement || 0);
       });
 
-      // Bigrams — detect two-word phrases as trending topics
       for (let i = 0; i < tokens.length - 1; i++) {
         const bigram = `${tokens[i]} ${tokens[i + 1]}`;
         if (!STOP_WORDS.has(tokens[i]) && !STOP_WORDS.has(tokens[i + 1])) {
-          const score = recencyWeight * engagementBoost * 1.5; // bigrams get boost
+          const score = recencyWeight * engagementBoost * 1.5;
           wordScores[bigram] = (wordScores[bigram] || 0) + score;
           wordEngagement[bigram] = (wordEngagement[bigram] || 0) + (post.engagement || 0);
         }
       }
     });
 
-    // Sort by composite score, take top 5
-    const sorted = Object.keys(wordScores)
+    const topWords = Object.keys(wordScores)
       .map(word => ({ word, score: wordScores[word], interactions: wordEngagement[word] }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
+      .slice(0, 15);
 
-    return sorted.map(t => ({
-      word: t.word.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-      interactions: t.interactions,
-      category: getCategoryForWord(t.word) || 'Trending',
-    }));
+    return topWords;
   }, [posts]);
+
+  useEffect(() => {
+    if (computedRawWords.length === 0) return;
+
+    // Fast-path visual render with fallback text
+    setTopics(computedRawWords.slice(0, 5).map(tw => ({
+      word: tw.word.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+      interactions: tw.interactions,
+      category: 'Analyzing...'
+    })));
+
+    // Asynchronously cluster with LLM API — re-run every 30 secs to save tokens
+    let isMounted = true;
+    import('./SimulationContext').then(({ clusterTopicsWithLLM }) => {
+      clusterTopicsWithLLM(groqInstance, computedRawWords.map(tw => tw.word)).then(clusters => {
+        if (!isMounted) return;
+        const newTopics = clusters.map(topicName => {
+          const matchedRawWord = computedRawWords.find(tw => topicName.toLowerCase().includes(tw.word.toLowerCase())) || computedRawWords[0];
+          return {
+            word: topicName,
+            interactions: matchedRawWord?.interactions || 0,
+            category: 'Dynamic Trend'
+          };
+        });
+        setTopics(newTopics.slice(0, 5));
+      });
+    });
+
+    return () => { isMounted = false; };
+  }, [computedRawWords, groqInstance, Math.floor(Date.now() / 30000)]);
+
+  return topics;
 };
 
-// ─── SocialPost Component ─────────────────────────────────────────────────────
-const SocialPost = memo(({ post, likePost, sharePost, isReply = false, isLastReply = true }) => {
+// ─── UI Utility: Keyword Highlighting ─────────────────────────────────────────
+const HighlightText = memo(({ text, highlight }) => {
+  if (!highlight || !highlight.trim()) {
+    return <span>{text}</span>;
+  }
+  
+  const regex = new RegExp(`(${highlight.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const parts = text.split(regex);
+  
   return (
-    <div className={`post-card ${!isReply ? 'animate-entrance' : ''}`}>
+    <span>
+      {parts.map((part, i) => 
+        regex.test(part) ? (
+          <mark key={i} style={{ backgroundColor: 'rgba(29, 155, 240, 0.4)', color: 'inherit', borderRadius: '3px', padding: '0 2px' }}>
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </span>
+  );
+});
+
+// ─── SocialPost Component ─────────────────────────────────────────────────────
+// showThreadLine: if true, draws the vertical thread line below the avatar
+const SocialPost = memo(({ post, likePost, sharePost, searchQuery, showThreadLine = false, interactors }) => {
+  const hasInteractors = interactors?.likes?.length > 0 || interactors?.shares?.length > 0;
+
+  const formatActors = (actors) => {
+    if (!actors || actors.length === 0) return '';
+    if (actors.length === 1) return actors[0].handle;
+    if (actors.length === 2) return `${actors[0].handle} and ${actors[1].handle}`;
+    return `${actors[0].handle} and ${actors.length - 1} others`;
+  };
+
+  return (
+    <div className="post-card animate-entrance">
       {/* Left Column: Avatar & Thread Line */}
       <div className="post-avatar-col">
         <div style={{ 
@@ -158,10 +179,7 @@ const SocialPost = memo(({ post, likePost, sharePost, isReply = false, isLastRep
         }}>
           {post.author.handle.substring(1, 2).toUpperCase()}
         </div>
-        
-        {((post.replies && post.replies.length > 0) || (isReply && !isLastReply)) && (
-          <div className="thread-line"></div>
-        )}
+        {showThreadLine && <div className="thread-line"></div>}
       </div>
 
       {/* Right Column: Content */}
@@ -189,7 +207,7 @@ const SocialPost = memo(({ post, likePost, sharePost, isReply = false, isLastRep
           whiteSpace: 'pre-wrap',
           wordWrap: 'break-word'
         }}>
-          {post.text}
+          <HighlightText text={post.text} highlight={searchQuery} />
         </p>
 
         {/* Action Bar */}
@@ -209,31 +227,97 @@ const SocialPost = memo(({ post, likePost, sharePost, isReply = false, isLastRep
             <span style={{ fontSize: '0.9rem', minWidth: '16px' }}>{post.likes > 0 ? post.likes : ''}</span>
           </button>
         </div>
+
+        {/* ── Interaction Attribution: who liked / shared this post ── */}
+        {hasInteractors && (
+          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            {interactors?.likes?.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                {/* Mini avatar stack */}
+                <div style={{ display: 'flex' }}>
+                  {interactors.likes.slice(0, 3).map((actor, idx) => (
+                    <div key={actor.id} title={actor.handle} style={{
+                      width: '18px', height: '18px', borderRadius: '50%',
+                      backgroundColor: actor.color,
+                      border: '1.5px solid var(--bg-card)',
+                      marginLeft: idx > 0 ? '-5px' : 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.55rem', fontWeight: 800, color: '#000',
+                      position: 'relative', zIndex: 3 - idx,
+                    }}>
+                      {actor.handle.substring(1, 2).toUpperCase()}
+                    </div>
+                  ))}
+                </div>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                  Liked by{' '}
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {formatActors(interactors.likes)}
+                  </span>
+                </span>
+              </div>
+            )}
+            {interactors?.shares?.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                  <path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                </svg>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                  Reposted by{' '}
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {formatActors(interactors.shares)}
+                  </span>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 });
 
-// ─── ThreadBlock: Wraps post + replies in a rounded container (Task 4) ────────
-const ThreadBlock = memo(({ post, likePost, sharePost }) => {
+// ─── flattenReplies: converts nested reply tree → flat ordered array ──────────
+// This enables Twitter/X-style threads: all replies at the same indentation,
+// connected by a single continuous thread line (no deep cascading columns).
+const flattenReplies = (replies) => {
+  const result = [];
+  for (const reply of replies) {
+    result.push(reply);
+    if (reply.replies?.length > 0) {
+      result.push(...flattenReplies(reply.replies));
+    }
+  }
+  return result;
+};
+
+// ─── ThreadBlock: parent post + flat threaded replies (Twitter/X style) ────────
+const ThreadBlock = memo(({ post, likePost, sharePost, searchQuery, postInteractors }) => {
+  const allReplies = useMemo(() => flattenReplies(post.replies || []), [post.replies]);
+
   return (
     <div className="post-container">
       <div className="threaded-replies-container">
-        <SocialPost post={post} likePost={likePost} sharePost={sharePost} />
-        {post.replies && post.replies.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {post.replies.map((reply, index) => (
-              <SocialPost
-                key={reply.id}
-                post={reply}
-                likePost={likePost}
-                sharePost={sharePost}
-                isReply={true}
-                isLastReply={index === post.replies.length - 1}
-              />
-            ))}
-          </div>
-        )}
+        <SocialPost
+          post={post}
+          likePost={likePost}
+          sharePost={sharePost}
+          searchQuery={searchQuery}
+          showThreadLine={allReplies.length > 0}
+          interactors={postInteractors?.[post.id]}
+        />
+        {allReplies.map((reply, i) => (
+          <SocialPost
+            key={reply.id}
+            post={reply}
+            likePost={likePost}
+            sharePost={sharePost}
+            searchQuery={searchQuery}
+            showThreadLine={i < allReplies.length - 1}
+            interactors={postInteractors?.[reply.id]}
+          />
+        ))}
       </div>
     </div>
   );
@@ -301,7 +385,8 @@ function App() {
     likePost: contextLikePost,
     sharePost: contextSharePost,
     createCustomBot,
-    clearSimulation
+    clearSimulation,
+    postInteractors,
   } = useSimulation();
 
   const [activeTab, setActiveTab] = useState('home');
@@ -320,7 +405,7 @@ function App() {
   const [bufferedPosts, setBufferedPosts] = useState([]);
 
   // Task 7: ML Trending Topics
-  const trendingTopics = useTrendingTopics(posts);
+  const trendingTopics = useTrendingTopics(posts, groq);
 
   // Task 1 FIX: Buffer Logic
   // The key fix: on the very first time posts arrive (initial Supabase load),
@@ -409,9 +494,16 @@ function App() {
       );
     }
     return displayedPosts.map(post => (
-      <ThreadBlock key={post.id} post={post} likePost={handleLikePost} sharePost={handleSharePost} />
+      <ThreadBlock 
+        key={post.id} 
+        post={post} 
+        likePost={handleLikePost} 
+        sharePost={handleSharePost} 
+        searchQuery={searchQuery}
+        postInteractors={postInteractors}
+      />
     ));
-  }, [displayedPosts, handleLikePost, handleSharePost, searchQuery]);
+  }, [displayedPosts, handleLikePost, handleSharePost, searchQuery, postInteractors]);
 
 
   return (

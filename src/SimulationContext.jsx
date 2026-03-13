@@ -3,9 +3,12 @@ import Groq from 'groq-sdk';
 import { BOT_PERSONAS, BOT_SYSTEM_PROMPTS, POST_TOPIC_POOL } from './types';
 import { supabase } from './supabaseClient';
 
-const groq = import.meta.env.VITE_GROQ_API_KEY
+export const groq = import.meta.env.VITE_GROQ_API_KEY
   ? new Groq({ apiKey: import.meta.env.VITE_GROQ_API_KEY, dangerouslyAllowBrowser: true })
   : null;
+
+// Only log in development — suppress all bot noise in production
+const isDev = import.meta.env.DEV;
 
 const SimulationContext = createContext(null);
 export const useSimulation = () => useContext(SimulationContext);
@@ -14,7 +17,7 @@ export const useSimulation = () => useContext(SimulationContext);
 // ML UTILITY: Multi-factor post scoring for candidate selection
 // Combines recency, controversy (reply count), engagement (likes+shares), and novelty
 // ─────────────────────────────────────────────────────────────────────────────
-const scoreCandidatePost = (post, now) => {
+export const scoreCandidatePost = (post, now) => {
   const AGE_DECAY_MS = 30 * 60 * 1000; // 30-minute half-life
   const ageMs = now - post.timestamp;
 
@@ -35,7 +38,7 @@ const scoreCandidatePost = (post, now) => {
 // Select the best candidate post for a bot to evaluate
 // Filters out: own posts, already-engaged posts, very old posts (> 2 hours)
 // ─────────────────────────────────────────────────────────────────────────────
-const selectCandidatePost = (bot, posts, engagedPostIds, now) => {
+export const selectCandidatePost = (bot, posts, engagedPostIds, now) => {
   const TWO_HOURS = 2 * 60 * 60 * 1000;
   const flattenAll = (arr) => arr.reduce((acc, p) => {
     return [...acc, p, ...flattenAll(p.replies || [])];
@@ -67,12 +70,119 @@ const selectCandidatePost = (bot, posts, engagedPostIds, now) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LLM: Generate text for organic posts ───────────────────────────────────
+export const generateBotText = async (groqInstance, bot, prompt, systemPrompt, activePrompts) => {
+  if (!groqInstance) return null;
+  await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1500));
+  try {
+    const completion = await groqInstance.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt || activePrompts[bot.role] || 'You are opinionated.' },
+        { role: 'user', content: prompt }
+      ],
+      model: 'llama-3.1-8b-instant',
+      max_tokens: 80,
+    });
+    return completion.choices[0]?.message?.content?.replace(/['"]/g, '') || null;
+  } catch (e) {
+    // Silently abort on rate limits (429) — don't post error text to the feed
+    if (e?.status === 429 || e?.message?.includes('429') || e?.message?.includes('rate')) {
+      isDev && console.warn(`[Rate Limit] ${bot.handle} throttled — skipping`);
+      return null;
+    }
+    isDev && console.error('Groq text error:', e);
+    return null;
+  }
+};
+
+// ── ML: Stance & Sentiment Evaluation ───────────────────────────────────────
+// Uses the LLM to evaluate the bot's agreement and detect overall sentiment.
+// Returns { stance: 'AGREE'|'DISAGREE'|'NEUTRAL', confidence: 0.0-1.0, sentiment: 'Joy'|'Anger'|'Fear'|'Sadness'|'Surprise'|'Disgust'|'Neutral' }
+export const evaluateStance = async (groqInstance, bot, post, activePrompts) => {
+  if (!groqInstance) return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' };
+  try {
+    const systemPrompt = activePrompts[bot.role] || '';
+    const userPrompt = `Read this social media post and evaluate whether you agree or disagree with it based on your worldview and values.
+
+Post: "${post.text}"
+
+Respond ONLY with a JSON object in this exact format (no other text):
+{"stance":"AGREE","confidence":0.82,"sentiment":"Joy"}
+
+stance must be exactly "AGREE", "DISAGREE", or "NEUTRAL".
+confidence must be a decimal between 0.0 and 1.0.
+sentiment must be one of: "Joy", "Anger", "Fear", "Sadness", "Surprise", "Disgust", "Neutral" based on the emotion YOUR persona feels reading this post.`;
+
+    const completion = await groqInstance.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      model: 'llama-3.1-8b-instant',
+      max_tokens: 30,
+      temperature: 0.3, // Low temperature for consistent structured output
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim() || '';
+    // Robustly parse JSON even if model adds surrounding text
+    const match = raw.match(/\{[^}]+\}/);
+    if (!match) return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' };
+    const parsed = JSON.parse(match[0]);
+    const stance = ['AGREE', 'DISAGREE', 'NEUTRAL'].includes(parsed?.stance) ? parsed.stance : 'NEUTRAL';
+    const confidence = Math.min(1, Math.max(0, Number(parsed?.confidence) || 0));
+    const validSentiments = ['Joy', 'Anger', 'Fear', 'Sadness', 'Surprise', 'Disgust', 'Neutral'];
+    const sentiment = validSentiments.includes(parsed?.sentiment) ? parsed.sentiment : 'Neutral';
+    
+    return { stance, confidence, sentiment };
+  } catch (e) {
+    // 429 rate-limit errors are expected under heavy load — handle silently
+    if (!e?.message?.includes('429') && !e?.message?.includes('rate')) {
+      isDev && console.warn(`Stance eval failed for ${bot.handle}:`, e.message);
+    }
+    return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' };
+  }
+};
+
+// ── ML: Topic Modeling (LLM Clustering) ───────────────────────────────────
+// Takes an array of rising keywords (n-grams) and asks the LLM to cluster them
+// into coherent societal topic categories.
+export const clusterTopicsWithLLM = async (groqInstance, keywords) => {
+  if (!groqInstance || !keywords || keywords.length === 0) return [];
+  try {
+    const prompt = `You are a social media trends analyzer.
+Below is a list of rising keywords on a network:
+[${keywords.join(', ')}]
+
+Group these into EXACTLY 5 high-level "Trending Topics" (e.g., "AI Regulation", "Crypto Market", "Pop Culture Drama").
+Format your response as a pure JSON array of 5 strings.
+Example: ["Topic 1", "Topic 2", "Topic 3", "Topic 4", "Topic 5"]`;
+
+    const completion = await groqInstance.chat.completions.create({
+      messages: [{ role: 'user', content: prompt }],
+      model: 'llama-3.1-8b-instant',
+      max_tokens: 60,
+      temperature: 0.1,
+    });
+    
+    const raw = completion.choices[0]?.message?.content?.trim() || '';
+    const match = raw.match(/\[.*\]/s);
+    if (!match) return keywords.slice(0, 5); // Fallback to raw words
+    let topics = JSON.parse(match[0]);
+    if (!Array.isArray(topics)) return keywords.slice(0, 5);
+    return topics.slice(0, 5).map(t => String(t).substring(0, 30)); // limit length
+  } catch (e) {
+    isDev && console.warn(`Topic clustering failed:`, e.message);
+    return keywords.slice(0, 5); // Fallback to raw keywords
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SimulationProvider
 // ─────────────────────────────────────────────────────────────────────────────
 export const SimulationProvider = ({ children }) => {
   const USER_PERSONA = {
     id: 'human_user',
-    handle: '@Me',
+    handle: '@Myself',
     role: 'human',
     color: '#ffffffff'
   };
@@ -81,6 +191,7 @@ export const SimulationProvider = ({ children }) => {
   const [activeBots, setActiveBots] = useState(BOT_PERSONAS);
   const [activePrompts, setActivePrompts] = useState(BOT_SYSTEM_PROMPTS);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [postInteractors, setPostInteractors] = useState({});
 
   const [outrageMultiplier, setOutrageMultiplier] = useState(50);
   const [curiosityMultiplier, setCuriosityMultiplier] = useState(30);
@@ -90,16 +201,36 @@ export const SimulationProvider = ({ children }) => {
   const generatingBotsRef = useRef(new Set()); // bots currently mid-LLM call
 
   // ── Bot Memory ──────────────────────────────────────────────────────────────
-  // Per-bot: engagedPosts (Set of IDs already acted on), topicStances (consistency map)
+  // Per-bot: engagedPosts, topicStances, and dynamic adaptation trackers
   const botMemoryRef = useRef({});
   const getBotMemory = (botId) => {
     if (!botMemoryRef.current[botId]) {
       botMemoryRef.current[botId] = {
         engagedPosts: new Set(),
         topicStances: new Map(),  // topicKey → 'agree' | 'disagree'
+        ticksWithoutEngagement: 0, // Reinforcement Learning: tracks isolation
+        dynamicThreshold: null,    // If set, overrides bot.engagementThreshold
       };
     }
     return botMemoryRef.current[botId];
+  };
+
+  // ── Interaction Attribution ──────────────────────────────────────────────────
+  // Records which actor (bot or human) performed a like or share on a post.
+  // Deduplicates so the same actor only appears once per action type.
+  const recordInteraction = (postId, type, actor) => {
+    setPostInteractors(prev => {
+      const existing = prev[postId] || { likes: [], shares: [] };
+      const key = type === 'like' ? 'likes' : 'shares';
+      if (existing[key].some(a => a.id === actor.id)) return prev;
+      return {
+        ...prev,
+        [postId]: {
+          ...existing,
+          [key]: [...existing[key], { id: actor.id, handle: actor.handle, color: actor.color }]
+        }
+      };
+    });
   };
 
   useEffect(() => {
@@ -202,79 +333,14 @@ export const SimulationProvider = ({ children }) => {
     });
   };
 
-  // ── LLM: Generate text for organic posts ───────────────────────────────────
-  const generateBotText = async (bot, prompt, systemPrompt) => {
-    if (!groq) return null;
-    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1500));
-    try {
-      const completion = await groq.chat.completions.create({
-        messages: [
-          { role: 'system', content: systemPrompt || stateRef.current.activePrompts[bot.role] || 'You are opinionated.' },
-          { role: 'user', content: prompt }
-        ],
-        model: 'llama-3.1-8b-instant',
-        max_tokens: 80,
-      });
-      return completion.choices[0]?.message?.content?.replace(/[''"]/g, '') || null;
-    } catch (e) {
-      // Silently abort on rate limits (429) — don't post error text to the feed
-      if (e?.status === 429 || e?.message?.includes('429') || e?.message?.includes('rate')) {
-        console.warn(`[Rate Limit] ${bot.handle} throttled — skipping`);
-        return null;
-      }
-      console.error('Groq text error:', e);
-      return null;
-    }
-  };
-
-  // ── ML: Stance Evaluation ───────────────────────────────────────────────────
-  // Uses the LLM to evaluate the bot's agreement with a post.
-  // Returns { stance: 'AGREE'|'DISAGREE'|'NEUTRAL', confidence: 0.0-1.0 }
-  // Employs a structured JSON prompt with the bot's system persona injected.
-  const evaluateStance = async (bot, post) => {
-    if (!groq) return { stance: 'NEUTRAL', confidence: 0 };
-    try {
-      const systemPrompt = stateRef.current.activePrompts[bot.role] || '';
-      const userPrompt = `Read this social media post and evaluate whether you agree or disagree with it based on your worldview and values.
-
-Post: "${post.text}"
-
-Respond ONLY with a JSON object in this exact format (no other text):
-{"stance":"AGREE","confidence":0.82}
-
-stance must be exactly "AGREE", "DISAGREE", or "NEUTRAL".
-confidence must be a decimal between 0.0 and 1.0.`;
-
-      const completion = await groq.chat.completions.create({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        model: 'llama-3.1-8b-instant',
-        max_tokens: 30,
-        temperature: 0.3, // Low temperature for consistent structured output
-      });
-
-      const raw = completion.choices[0]?.message?.content?.trim() || '';
-      // Robustly parse JSON even if model adds surrounding text
-      const match = raw.match(/\{[^}]+\}/);
-      if (!match) return { stance: 'NEUTRAL', confidence: 0 };
-      const parsed = JSON.parse(match[0]);
-      const stance = ['AGREE', 'DISAGREE', 'NEUTRAL'].includes(parsed.stance) ? parsed.stance : 'NEUTRAL';
-      const confidence = Math.min(1, Math.max(0, Number(parsed.confidence) || 0));
-      return { stance, confidence };
-    } catch (e) {
-      console.warn(`Stance eval failed for ${bot.handle}:`, e.message);
-      return { stance: 'NEUTRAL', confidence: 0 };
-    }
-  };
+  // ── (Extracted logic for bot text and stance evaluation) ──────────────────
 
   // ── LLM: Generate an engagement-aware reply ─────────────────────────────────
-  // Generates a reply that's tonally aligned with the bot's stance (agree/disagree)
-  const generateEngagementReply = async (bot, post, stance) => {
+  // Generates a reply tonally aligned with the bot's stance and detected Sentiment
+  const generateEngagementReply = async (bot, post, stance, sentiment) => {
     const toneInstruction = stance === 'AGREE'
-      ? `You AGREE with this post. Express enthusiastic, authentic support. Build on it, add an insight, validate the perspective.`
-      : `You DISAGREE with this post. Push back with a direct, sharp counterargument rooted in your worldview. Be critical but not hateful.`;
+      ? `You AGREE with this post. Express authentic support matching your detected emotion of ${sentiment}. Build on it, validate the perspective.`
+      : `You DISAGREE with this post. Push back with a counterargument rooted in your worldview and your detected emotion of ${sentiment}. Be critical but not hateful.`;
 
     const prompt = `${toneInstruction}
 
@@ -283,7 +349,7 @@ Post from ${post.author.handle}: "${post.text}"
 Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, no filler.`;
 
     // Returns null on rate limit — caller checks before posting
-    return generateBotText(bot, prompt, stateRef.current.activePrompts[bot.role]);
+    return generateBotText(groq, bot, prompt, stateRef.current.activePrompts[bot.role], stateRef.current.activePrompts);
   };
 
   // ── Core: Execute post engagement ──────────────────────────────────────────
@@ -293,7 +359,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   // AGREE   confidence > 0.9    → Like + Share + Reply
   // DISAGREE confidence > 0.6   → Reply
   // DISAGREE confidence > 0.8   → Reply (stronger)
-  const engageWithPost = async (bot, post, stance, confidence) => {
+  const engageWithPost = async (bot, post, stance, confidence, sentiment) => {
     const memory = getBotMemory(bot.id);
     // Mark this post as engaged immediately to prevent race conditions
     memory.engagedPosts.add(post.id);
@@ -304,9 +370,9 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       (stance === 'AGREE' && confidence >= 0.9) ||
       (stance === 'DISAGREE' && confidence >= bot.engagementThreshold);
 
-    console.log(
+    isDev && console.log(
       `[Bot Intelligence] ${bot.handle} → "${post.text.slice(0, 60)}..." | ` +
-      `Stance: ${stance} (${(confidence * 100).toFixed(0)}%) | ` +
+      `Stance: ${stance} (${(confidence * 100).toFixed(0)}%) | Sentiment: ${sentiment} | ` +
       `Actions: ${[shouldLike && '❤️', shouldShare && '🔁', shouldReply && '💬'].filter(Boolean).join(' ') || '(skip)'}`
     );
 
@@ -320,6 +386,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
         const newLikes = (data?.likes || 0) + 1;
         await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
         setPosts(prev => updatePostDeep(prev, post.id, { likes: newLikes }));
+        recordInteraction(post.id, 'like', bot);
       });
     }
 
@@ -330,13 +397,14 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
         const newShares = (data?.shares || 0) + 1;
         await supabase.from('posts').update({ shares: newShares }).eq('id', post.id);
         setPosts(prev => updatePostDeep(prev, post.id, { shares: newShares }));
+        recordInteraction(post.id, 'share', bot);
       });
     }
 
     if (shouldReply) {
       actions.push(async () => {
         await new Promise(r => setTimeout(r, 1500 + Math.random() * 3000));
-        const replyText = await generateEngagementReply(bot, post, stance);
+        const replyText = await generateEngagementReply(bot, post, stance, sentiment);
         // Silently abort if LLM returned nothing (rate limit, etc.)
         if (!replyText) return;
 
@@ -377,7 +445,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
     generatingBotsRef.current.add(bot.id);
     const randomTopic = POST_TOPIC_POOL[Math.floor(Math.random() * POST_TOPIC_POOL.length)];
     const prompt = `Share a short, highly opinionated hot take about: ${randomTopic}. Be direct and passionate. No hashtags, no filler phrases, no quotes.`;
-    const text = await generateBotText(bot, prompt);
+    const text = await generateBotText(groq, bot, prompt, null, stateRef.current.activePrompts);
     generatingBotsRef.current.delete(bot.id);
 
     // Silently abort if LLM returned nothing (e.g. rate limited)
@@ -422,7 +490,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       if (!candidate) return;
 
       // 3. Evaluate stance using LLM (the core intelligence step)
-      const { stance, confidence } = await evaluateStance(bot, candidate);
+      const { stance, confidence, sentiment } = await evaluateStance(groq, bot, candidate, currentState.activePrompts);
 
       // 4. Check memory for topic consistency
       // Extract a rough topic key from the post (first 4 words)
@@ -431,12 +499,15 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       if (priorStance && priorStance !== stance && stance !== 'NEUTRAL') {
         // Bot has expressed a prior opposing stance on this topic — suppress to maintain consistency
         memory.engagedPosts.add(candidate.id); // Skip this post silently
-        console.log(`[Bot Memory] ${bot.handle} stance conflict on topic "${topicKey}" — skipping for consistency`);
+        isDev && console.log(`[Bot Memory] ${bot.handle} stance conflict on topic "${topicKey}" — skipping for consistency`);
         return;
       }
 
       // 5. Guard: only engage if confidence exceeds bot's personal threshold
-      if (confidence < bot.engagementThreshold || stance === 'NEUTRAL') {
+      // Uses the dynamic threshold (adapted via ML) if available, otherwise base.
+      const currentThreshold = memory.dynamicThreshold !== null ? memory.dynamicThreshold : bot.engagementThreshold;
+      
+      if (confidence < currentThreshold || stance === 'NEUTRAL') {
         memory.engagedPosts.add(candidate.id); // Mark as seen, not acted on
         return;
       }
@@ -447,7 +518,17 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       }
 
       // 7. Execute the engagement (like / share / reply based on action matrix)
-      await engageWithPost(bot, candidate, stance, confidence);
+      await engageWithPost(bot, candidate, stance, confidence, sentiment);
+
+      // ── Dynamic Bot Adaptation (Reinforcement / Epsilon-Greedy logic) ──
+      // If a bot acts but hasn't received engagement themselves in a while,
+      // and they keep agreeing without traction, they get more aggressive (lower threshold).
+      memory.ticksWithoutEngagement += 1;
+      if (memory.ticksWithoutEngagement > 5) {
+        isDev && console.log(`[Bot Adaptation] ${bot.handle} is feeling ignored. Lowering engagement threshold to seek conflict/attention.`);
+        memory.dynamicThreshold = Math.max(0.4, (memory.dynamicThreshold || bot.engagementThreshold) - 0.1);
+        memory.ticksWithoutEngagement = 0;
+      }
 
     } finally {
       generatingBotsRef.current.delete(bot.id);
@@ -460,6 +541,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
     const newLikes = (data?.likes || 0) + 1;
     await supabase.from('posts').update({ likes: newLikes }).eq('id', postId);
     setPosts(prev => updatePostDeep(prev, postId, { likes: newLikes }));
+    recordInteraction(postId, 'like', USER_PERSONA);
     markActive([authorId]);
   };
 
@@ -468,6 +550,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
     const newShares = (data?.shares || 0) + 1;
     await supabase.from('posts').update({ shares: newShares }).eq('id', postId);
     setPosts(prev => updatePostDeep(prev, postId, { shares: newShares }));
+    recordInteraction(postId, 'share', USER_PERSONA);
     markActive([authorId]);
   };
 
@@ -531,7 +614,8 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   };
 
   // ── Tick Engine ─────────────────────────────────────────────────────────────
-  // Each bot runs its own independent intelligence tick every 10 seconds.
+  // Each bot runs its own independent intelligence tick every 20 seconds.
+  // (Increased from 10s to reduce Groq API token consumption.)
   // Bots are staggered (random initial delay) so they don't all fire at once.
   useEffect(() => {
     if (!isLoaded) return;
@@ -543,9 +627,9 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
         // Stagger bot execution with per-bot delay to avoid thundering herd
         setTimeout(() => {
           runBotIntelligenceTick(bot);
-        }, index * 1200 + Math.random() * 2000);
+        }, index * 1500 + Math.random() * 3000);
       });
-    }, 10000);
+    }, 20000);
 
     return () => clearInterval(tickInterval);
   }, [isLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -565,6 +649,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       sharePost,
       createCustomBot,
       clearSimulation,
+      postInteractors,
     }}>
       {children}
     </SimulationContext.Provider>
