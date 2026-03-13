@@ -147,7 +147,20 @@ sentiment must be one of: "Joy", "Anger", "Fear", "Sadness", "Surprise", "Disgus
 // Takes an array of rising keywords (n-grams) and asks the LLM to cluster them
 // into coherent societal topic categories.
 export const clusterTopicsWithLLM = async (groqInstance, keywords) => {
-  if (!groqInstance || !keywords || keywords.length === 0) return [];
+  if (!keywords || keywords.length === 0) return [];
+
+  // Local Heuristic Fallback: if Groq is missing or fails (rate limited)
+  const fallback = () => {
+    // Group keywords by similarity (basic overlap or length-based heuristic)
+    // For now, we'll just pick the top 5 most frequent/important looking ones
+    // and title-case them as topics.
+    return keywords.slice(0, 5).map(k => {
+      return k.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    });
+  };
+
+  if (!groqInstance) return fallback();
+
   try {
     const prompt = `You are a social media trends analyzer.
 Below is a list of rising keywords on a network:
@@ -166,13 +179,15 @@ Example: ["Topic 1", "Topic 2", "Topic 3", "Topic 4", "Topic 5"]`;
     
     const raw = completion.choices[0]?.message?.content?.trim() || '';
     const match = raw.match(/\[.*\]/s);
-    if (!match) return keywords.slice(0, 5); // Fallback to raw words
+    if (!match) return fallback();
     let topics = JSON.parse(match[0]);
-    if (!Array.isArray(topics)) return keywords.slice(0, 5);
-    return topics.slice(0, 5).map(t => String(t).substring(0, 30)); // limit length
+    if (!Array.isArray(topics)) return fallback();
+    return topics.slice(0, 5).map(t => String(t).substring(0, 30));
   } catch (e) {
-    isDev && console.warn(`Topic clustering failed:`, e.message);
-    return keywords.slice(0, 5); // Fallback to raw keywords
+    if (isDev && !e?.message?.includes('429')) {
+      console.warn(`Topic clustering failed:`, e.message);
+    }
+    return fallback();
   }
 };
 
@@ -198,7 +213,7 @@ export const SimulationProvider = ({ children }) => {
 
   const isSimulating = useRef(true);
   const stateRef = useRef({ posts, outrageMultiplier, curiosityMultiplier, activeBots, activePrompts });
-  const generatingBotsRef = useRef(new Set()); // bots currently mid-LLM call
+  const [generatingBots, setGeneratingBots] = useState(new Set()); // bots currently mid-LLM call
 
   // ── Bot Memory ──────────────────────────────────────────────────────────────
   // Per-bot: engagedPosts, topicStances, and dynamic adaptation trackers
@@ -442,11 +457,15 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
 
   // ── Core: Organic Bot Post ──────────────────────────────────────────────────
   const createNewPost = async (bot) => {
-    generatingBotsRef.current.add(bot.id);
+    setGeneratingBots(prev => new Set(prev).add(bot.id));
     const randomTopic = POST_TOPIC_POOL[Math.floor(Math.random() * POST_TOPIC_POOL.length)];
     const prompt = `Share a short, highly opinionated hot take about: ${randomTopic}. Be direct and passionate. No hashtags, no filler phrases, no quotes.`;
     const text = await generateBotText(groq, bot, prompt, null, stateRef.current.activePrompts);
-    generatingBotsRef.current.delete(bot.id);
+    setGeneratingBots(prev => {
+      const next = new Set(prev);
+      next.delete(bot.id);
+      return next;
+    });
 
     // Silently abort if LLM returned nothing (e.g. rate limited)
     if (!text) return;
@@ -469,8 +488,8 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   // ── Core: Intelligent Tick ──────────────────────────────────────────────────
   // Each bot independently evaluates, decides, and acts using ML scoring + stance detection
   const runBotIntelligenceTick = async (bot) => {
-    if (generatingBotsRef.current.has(bot.id)) return; // Bot already busy
-    generatingBotsRef.current.add(bot.id);
+    if (generatingBots.has(bot.id)) return; // Bot already busy
+    setGeneratingBots(prev => new Set(prev).add(bot.id));
 
     try {
       const currentState = stateRef.current;
@@ -531,7 +550,11 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       }
 
     } finally {
-      generatingBotsRef.current.delete(bot.id);
+      setGeneratingBots(prev => {
+        const next = new Set(prev);
+        next.delete(bot.id);
+        return next;
+      });
     }
   };
 
@@ -650,6 +673,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       createCustomBot,
       clearSimulation,
       postInteractors,
+      generatingBots,
     }}>
       {children}
     </SimulationContext.Provider>

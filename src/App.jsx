@@ -147,6 +147,24 @@ const HighlightText = memo(({ text, highlight }) => {
   );
 });
 
+// ─── TypingIndicator Component ────────────────────────────────────────────────
+const TypingIndicator = memo(({ handle, color }) => (
+  <div className="typing-indicator animate-entrance">
+    <div style={{ 
+      width: '24px', height: '24px', borderRadius: '50%', 
+      backgroundColor: color, display: 'flex', alignItems: 'center', 
+      justifyContent: 'center', color: '#000', fontWeight: 800, fontSize: '0.65rem',
+      boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)'
+    }}>
+      {handle.substring(1, 2).toUpperCase()}
+    </div>
+    <span>{handle} is thinking</span>
+    <div className="dot"></div>
+    <div className="dot"></div>
+    <div className="dot"></div>
+  </div>
+));
+
 // ─── SocialPost Component ─────────────────────────────────────────────────────
 // showThreadLine: if true, draws the vertical thread line below the avatar
 const SocialPost = memo(({ post, likePost, sharePost, searchQuery, showThreadLine = false, interactors }) => {
@@ -230,7 +248,15 @@ const SocialPost = memo(({ post, likePost, sharePost, searchQuery, showThreadLin
 
         {/* ── Interaction Attribution: who liked / shared this post ── */}
         {hasInteractors && (
-          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <div style={{ 
+            marginTop: '10px', 
+            paddingTop: '10px', 
+            borderTop: '1px solid var(--border)', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '5px',
+            animation: 'fadeIn 0.4s ease-out'
+          }}>
             {interactors?.likes?.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                 {/* Mini avatar stack */}
@@ -387,6 +413,8 @@ function App() {
     createCustomBot,
     clearSimulation,
     postInteractors,
+    generatingBots,
+    activeBots,
   } = useSimulation();
 
   const [activeTab, setActiveTab] = useState('home');
@@ -559,6 +587,11 @@ function App() {
           {/* Feed Container */}
           <div style={{ position: 'relative' }}>
             
+            {/* Show Bots Typing (Task 3) */}
+            {activeBots.filter(b => generatingBots.has(b.id)).map(bot => (
+              <TypingIndicator key={bot.id} handle={bot.handle} color={bot.color} />
+            ))}
+
             {/* Show New Posts Pill */}
             {bufferedPosts.length > 0 && (
               <div style={{ position: 'absolute', top: '16px', left: '0', right: '0', display: 'flex', justifyContent: 'center', zIndex: 10 }}>
