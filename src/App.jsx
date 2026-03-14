@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback, memo } from 'react'
 import { useSimulation, groq } from './SimulationContext'
+import ForceGraph from './ForceGraph'
 import './index.css'
 
 // Helper for human-readable time
@@ -136,7 +137,7 @@ const useTrendingTopics = (posts, groqInstance) => {
     });
 
     return () => { isMounted = false; };
-  }, [computedRawWords, groqInstance, Math.floor(Date.now() / 30000)]);
+  }, [computedRawWords, groqInstance, Math.floor(Date.now() / 300000)]);
 
   return topics;
 };
@@ -252,6 +253,37 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
     return `${actors[0].handle} and ${actors.length - 1} others`;
   };
 
+  const renderContentWithMedia = (text, highlight, HighlightComponent) => {
+    if (!text) return null;
+    const mediaMatch = text.match(/\[MEDIA:\s*([^\]]+)\]/);
+    if (!mediaMatch) return HighlightComponent ? <HighlightComponent text={text} highlight={highlight} /> : text;
+    
+    const cleanText = text.replace(/\[MEDIA:\s*[^\]]+\]/, '').trim();
+    const topic = mediaMatch[1].trim().toLowerCase();
+    
+    return (
+      <>
+        {cleanText && (
+          <div style={{ marginBottom: '12px' }}>
+            {HighlightComponent ? <HighlightComponent text={cleanText} highlight={highlight} /> : cleanText}
+          </div>
+        )}
+        <div style={{ 
+          marginTop: '8px', borderRadius: '16px', overflow: 'hidden', 
+          border: '1px solid var(--border)', background: 'var(--border)',
+          aspectRatio: '16 / 9'
+        }}>
+          <img 
+            src={`https://loremflickr.com/640/360/${topic}`} 
+            alt={topic} 
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={(e) => e.target.style.display = 'none'}
+          />
+        </div>
+      </>
+    );
+  };
+
   const isHumanLiked = humanLiked?.has(post.id);
 
   return (
@@ -355,9 +387,15 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
             </div>
           </div>
         ) : (
-          <p style={{ color: 'var(--text-primary)', fontSize: '1rem', lineHeight: '1.5', marginBottom: '12px', whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>
-            <HighlightText text={post.text} highlight={searchQuery} />
-          </p>
+          <div style={{ 
+            fontSize: '1rem', 
+            lineHeight: 1.5, 
+            color: 'var(--text-primary)',
+            wordBreak: 'break-word',
+            marginBottom: '12px'
+          }}>
+            {renderContentWithMedia(post.text, searchQuery, HighlightText)}
+          </div>
         )}
 
         {/* Action Bar */}
@@ -572,7 +610,20 @@ const Composer = ({ createHumanPost }) => {
           rows="2"
           style={{ fontSize: '1.2rem', padding: '4px 0', minHeight: '56px', fontWeight: 500 }}
         />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: '12px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button 
+              className="action-btn" 
+              style={{ padding: '8px', color: 'var(--accent-cyan)' }}
+              title="Add Image (Simulated)"
+              onClick={() => setText(prev => prev + " [MEDIA: digital-art]")}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            </button>
+            <button className="action-btn" style={{ padding: '8px', color: 'var(--accent-cyan)' }} title="Add Emoji">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="15" x2="15.01" y2="15"></line></svg>
+            </button>
+          </div>
           <button
             className="btn-primary"
             disabled={!text.trim()}
@@ -605,11 +656,13 @@ function App() {
     sharePost: contextSharePost,
     createCustomBot,
     clearSimulation,
+    updateBotPersona,
     postInteractors,
     generatingBots,
     activeBots,
     humanLiked,
     humanShared,
+    persuasions,
   } = useSimulation();
 
   const [activeTab, setActiveTab] = useState('home');
@@ -620,6 +673,12 @@ function App() {
 
   // Task 6: Search state
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Sentiment Heatmap Toggle
+  const [heatmapMode, setHeatmapMode] = useState(false);
+  const [showInfluenceModal, setShowInfluenceModal] = useState(false);
+  const [selectedBotId, setSelectedBotId] = useState(null);
+  const [timeMachineValue, setTimeMachineValue] = useState(100); // 100 = Now, 0 = Ancient history
 
   // Buffer Engine
   // Task 1: isInitialLoad ref prevents buffer swallowing the first Supabase data load
@@ -681,6 +740,12 @@ function App() {
     setBufferedPosts([]);
   };
 
+  useEffect(() => {
+    if (selectedBotId && activeTab === 'network') {
+      setActiveTab('lab');
+    }
+  }, [selectedBotId]);
+
   const handleLikePost = useCallback((postId, authorId) => {
     contextLikePost(postId, authorId);
   }, [contextLikePost]);
@@ -712,14 +777,25 @@ function App() {
   // In search mode: each matching post or reply appears as its own card with
   // a "view in thread" button; no full thread expansion.
   const { displayedPosts, searchResults } = useMemo(() => {
+    // Apply Time Machine Filter to feedPosts first
+    let activeFeed = feedPosts;
+    if (timeMachineValue < 100 && feedPosts.length > 0) {
+      const times = feedPosts.map(p => new Date(p.created_at).getTime());
+      const minTime = Math.min(...times);
+      const maxTime = Math.max(...times);
+      const range = maxTime - minTime;
+      const cutoff = minTime + (range * (timeMachineValue / 100));
+      activeFeed = feedPosts.filter(p => new Date(p.created_at).getTime() <= cutoff);
+    }
+
     if (!searchQuery.trim()) {
-      return { displayedPosts: feedPosts, searchResults: null };
+      return { displayedPosts: activeFeed, searchResults: null };
     }
     const q = searchQuery.toLowerCase();
 
     // Flatten all posts + replies into a flat list with parent context
     const flatItems = [];
-    feedPosts.forEach(post => {
+    activeFeed.forEach(post => {
       if (post.text?.toLowerCase().includes(q) || post.author?.handle?.toLowerCase().includes(q)) {
         flatItems.push({ item: post, parentPost: null });
       }
@@ -731,8 +807,8 @@ function App() {
       });
     });
 
-    return { displayedPosts: feedPosts, searchResults: flatItems };
-  }, [feedPosts, searchQuery]);
+    return { displayedPosts: activeFeed, searchResults: flatItems };
+  }, [feedPosts, searchQuery, timeMachineValue]);
 
   const sharedPostProps = {
     likePost: handleLikePost,
@@ -826,6 +902,20 @@ function App() {
               Home
             </button>
             <button
+              className={`nav-link ${activeTab === 'network' ? 'active' : ''}`}
+              onClick={() => setActiveTab('network')}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === 'network' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+              Network
+            </button>
+            <button
+              className={`nav-link ${activeTab === 'lab' ? 'active' : ''}`}
+              onClick={() => setActiveTab('lab')}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === 'lab' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.77 3.77z"></path></svg>
+              Bot Lab
+            </button>
+            <button
               className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
               onClick={() => setActiveTab('settings')}
             >
@@ -908,6 +998,253 @@ function App() {
             {renderedFeedList}
 
             <div style={{ paddingBottom: '150px', height: '50vh' }}></div>
+          </div>
+        </main>
+
+        {/* Network Graph Tab */}
+        <main className="main-feed" style={{ display: activeTab === 'network' ? 'flex' : 'none', position: 'relative', overflow: 'hidden' }}>
+          <header className="feed-header" style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Network Pulse</h2>
+              <button 
+                onClick={() => setShowInfluenceModal(true)}
+                className="action-btn"
+                style={{ fontSize: '0.8rem', background: 'rgba(29, 155, 240, 0.1)', color: 'var(--accent-cyan)', border: '1px solid rgba(29,155,240,0.2)' }}
+              >
+                📊 Influence Analytics
+              </button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Sentiment Heatmap</span>
+              <button 
+                onClick={() => setHeatmapMode(m => !m)}
+                style={{ 
+                  width: '40px', height: '20px', borderRadius: '10px', 
+                  backgroundColor: heatmapMode ? 'var(--accent-cyan)' : 'var(--border)', 
+                  position: 'relative', border: 'none', cursor: 'pointer', transition: 'background 0.2s'
+                }}
+              >
+                <div style={{ 
+                  width: '16px', height: '16px', borderRadius: '50%', backgroundColor: '#fff', 
+                  position: 'absolute', top: '2px', left: heatmapMode ? '22px' : '2px', transition: 'left 0.2s'
+                }}></div>
+              </button>
+            </div>
+          </header>
+
+          <div style={{ padding: '8px 16px', background: 'rgba(29, 155, 240, 0.05)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>🕒 Time Machine</span>
+            <input 
+              type="range" min="0" max="100" value={timeMachineValue} 
+              onChange={e => setTimeMachineValue(Number(e.target.value))}
+              style={{ flex: 1, accentColor: 'var(--accent-cyan)' }} 
+            />
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--accent-cyan)', width: '40px' }}>{timeMachineValue}%</span>
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0 }}>
+              <ForceGraph 
+                heatmapMode={heatmapMode} 
+                onNodeClick={(id) => setSelectedBotId(id)}
+              />
+          </div>
+
+          <UIModal
+            isOpen={showInfluenceModal}
+            onClose={() => setShowInfluenceModal(false)}
+            title="Influence Analytics"
+            description="Tracking the flow of persuasion and stance shifts across the network."
+            onConfirm={() => setShowInfluenceModal(false)}
+            confirmText="Close"
+          >
+            <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '60vh', overflowY: 'auto' }}>
+              <div className="sidebar-card">
+                <h4 style={{ marginBottom: '12px', fontSize: '1rem', color: 'var(--accent-cyan)' }}>Recent Persuasions</h4>
+                {persuasions.length === 0 ? (
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No stance shifts detected yet. Monitor active threads.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {persuasions.slice().reverse().map((p, i) => (
+                      <div key={i} style={{ fontSize: '0.85rem', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{activeBots.find(b => b.id === p.influencerId)?.handle || 'Bot'}</span>
+                        {' persuaded '}
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{activeBots.find(b => b.id === p.influencedId)?.handle || 'Bot'}</span>
+                        <div style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>
+                           Topic: <span style={{ color: 'var(--accent-cyan)' }}>{p.topic}</span>
+                        </div>
+                        <div style={{ marginTop: '2px', fontStyle: 'italic' }}>
+                           {p.fromStance} → {p.toStance}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </UIModal>
+        </main>
+
+        {/* Bot Lab Tab */}
+        <main className="main-feed" style={{ display: activeTab === 'lab' ? 'flex' : 'none', borderRight: 'none' }}>
+          <header className="feed-header">
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Agent Research & Development</h2>
+          </header>
+
+          <div style={{ padding: '24px', display: 'flex', gap: '24px', maxWidth: '900px', margin: '0 auto', width: '100%', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
+            {/* Bot List */}
+            <div style={{ width: '280px', borderRight: '1px solid var(--border)', paddingRight: '20px', overflowY: 'auto' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px', color: 'var(--text-secondary)' }}>Live Nodes</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {activeBots.map(bot => (
+                  <button 
+                    key={bot.id}
+                    onClick={() => setSelectedBotId(bot.id)}
+                    style={{ 
+                      display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '12px', 
+                      background: selectedBotId === bot.id ? 'var(--surface-hover)' : 'transparent',
+                      border: selectedBotId === bot.id ? '1px solid var(--accent-cyan)' : '1px solid transparent',
+                      cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: bot.color, flexShrink: 0 }}></div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.handle.substring(1)}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{bot.role}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Editor Console */}
+            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
+              {!selectedBotId ? (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: '16px', opacity: 0.5 }}>
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.77 3.77z"></path>
+                  </svg>
+                  <p>Select a node to begin recalibration</p>
+                </div>
+              ) : (
+                (() => {
+                  const bot = activeBots.find(b => b.id === selectedBotId);
+                  if (!bot) return null;
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} className="animate-entrance">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                         <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: bot.color, boxShadow: `0 0 20px ${bot.color}44` }}></div>
+                         <div>
+                           <h3 style={{ fontSize: '1.4rem', fontWeight: 800 }}>{bot.handle}</h3>
+                           <span className="topic-category" style={{ fontSize: '0.85rem' }}>{bot.role} Module</span>
+                         </div>
+                      </div>
+
+                      <section>
+                        <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Personality Weights</h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          <div className="sidebar-card">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                              <label style={{ fontSize: '0.9rem', fontWeight: 700 }}>Engagement Threshold</label>
+                              <span style={{ color: 'var(--accent-cyan)', fontWeight: 800 }}>{Math.round(bot.engagementThreshold * 100)}%</span>
+                            </div>
+                            <input type="range" min="0" max="100" value={bot.engagementThreshold * 100} onChange={e => updateBotPersona(bot.id, { engagementThreshold: Number(e.target.value) / 100 })} style={{ accentColor: 'var(--accent-cyan)' }} />
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '6px' }}>Minimum confidence needed to interact with a post.</p>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section>
+                         <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Behavioral Predictions</h4>
+                         <div className="sidebar-card" style={{ background: 'rgba(29, 155, 240, 0.03)' }}>
+                           <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                             <li style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Volatility Index</span>
+                                <span style={{ color: bot.engagementThreshold < 0.3 ? 'var(--accent-rose)' : 'var(--text-primary)', fontWeight: 700 }}>{bot.engagementThreshold < 0.3 ? 'CRITICAL' : 'STABLE'}</span>
+                             </li>
+                             <li style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Estimated Replies/Hour</span>
+                                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>~{Math.round(bot.baseLikelihoodToPost * 10 + (1 - bot.engagementThreshold) * 20)}</span>
+                             </li>
+                           </ul>
+                         </div>
+                      </section>
+
+                      {/* NEW: Live Research Insight (LTM Display) */}
+                      <section className="animate-entrance" style={{ animationDelay: '0.2s' }}>
+                        <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live Research Insight</h4>
+                        <div className="sidebar-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'rgba(255, 255, 255, 0.02)' }}>
+                          
+                          {/* Emotional state */}
+                          <div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Latest Cognitive State</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '1.2rem' }}>
+                                {(() => {
+                                  const s = botMemories?.[bot.id]?.lastSentiment || 'Neutral';
+                                  if (s === 'Joy') return '😊';
+                                  if (s === 'Anger') return '😠';
+                                  if (s === 'Fear') return '😨';
+                                  if (s === 'Sadness') return '😢';
+                                  if (s === 'Surprise') return '😲';
+                                  if (s === 'Disgust') return '🤢';
+                                  return '😐';
+                                })()}
+                              </span>
+                              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{botMemories?.[bot.id]?.lastSentiment || 'Calm'}</span>
+                            </div>
+                          </div>
+
+                          {/* Social Graph */}
+                          <div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Social Relationships</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {Object.entries(botMemories?.[bot.id]?.socialGraph || {}).slice(0, 3).map(([authorId, score]) => {
+                                const targetBot = activeBots.find(b => b.id === authorId) || { handle: '@User', color: '#888' };
+                                return (
+                                  <div key={authorId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: targetBot.color }}></div>
+                                      <span>{targetBot.handle}</span>
+                                    </div>
+                                    <span style={{ color: score > 0 ? 'var(--accent-cyan)' : 'var(--accent-rose)', fontWeight: 800 }}>
+                                      {score > 0 ? `+${Math.round(score * 100)}` : Math.round(score * 100)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                              {Object.keys(botMemories?.[bot.id]?.socialGraph || {}).length === 0 && (
+                                <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>No established relationships.</div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Learned Stances */}
+                          <div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Convergent Beliefs</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                              {(Array.isArray(botMemories?.[bot.id]?.topicStances) ? botMemories[bot.id].topicStances : []).slice(0, 4).map(([topic, stance]) => (
+                                <span key={topic} style={{ 
+                                  fontSize: '0.7rem', padding: '4px 8px', borderRadius: '6px', 
+                                  background: stance === 'AGREE' ? 'rgba(0, 255, 255, 0.1)' : 'rgba(255, 0, 100, 0.1)',
+                                  color: stance === 'AGREE' ? 'var(--accent-cyan)' : 'var(--accent-rose)',
+                                  border: `1px solid ${stance === 'AGREE' ? 'var(--accent-cyan)33' : 'var(--accent-rose)33'}`
+                                }}>
+                                  {topic.slice(0, 15)}...
+                                </span>
+                              ))}
+                              {(botMemories?.[bot.id]?.topicStances || []).length === 0 && (
+                                <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>Evaluating trends...</div>
+                              )}
+                            </div>
+                          </div>
+
+                        </div>
+                      </section>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
           </div>
         </main>
 

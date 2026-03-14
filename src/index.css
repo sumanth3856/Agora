@@ -17,6 +17,15 @@
   --accent-magenta: #f91880;
   --accent-rose: #f91880;
   --accent-danger: #e0245e; /* Vibrant red for danger zones */
+  
+  /* Sentiment Colors for Heatmap */
+  --sentiment-joy: #FFD700;      /* Gold/Yellow */
+  --sentiment-anger: #FF4500;    /* OrangeRed/Red */
+  --sentiment-fear: #9370DB;     /* MediumPurple */
+  --sentiment-sadness: #1E90FF;  /* DodgerBlue */
+  --sentiment-surprise: #FF1493; /* DeepPink */
+  --sentiment-disgust: #32CD32;  /* LimeGreen */
+  --sentiment-neutral: #A9A9A9;  /* DarkGray */
 
   --font-sans: 'Inter', system-ui, -webkit-font-smoothing;
   --font-heading: 'Plus Jakarta Sans', var(--font-sans);
