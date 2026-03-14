@@ -118,15 +118,21 @@ const ICON = {
   settings: <><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></>
 };
 
-const UIModal = ({ isOpen, onClose, title, description, onConfirm, confirmText = 'Confirm', variant = 'default' }) => isOpen && (
+const UIModal = ({ isOpen, onClose, title, description, onConfirm, confirmText = 'Confirm', variant = 'default', children, showActions = true }) => isOpen && (
   <div className="modal-overlay" onClick={onClose}>
     <div className="modal-content" onClick={e => e.stopPropagation()}>
-      <h2 className="modal-title">{title}</h2>
-      <p className="modal-description">{description}</p>
-      <div className="modal-actions">
-        <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
-        <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
-      </div>
+      <button className="modal-close-btn" onClick={onClose} aria-label="Close">✕</button>
+      {title && <h2 className="modal-title">{title}</h2>}
+      {description && <p className="modal-description">{description}</p>}
+      
+      {children}
+
+      {showActions && (
+        <div className="modal-actions">
+          <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
+          <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
+        </div>
+      )}
     </div>
   </div>
 );
@@ -583,19 +589,23 @@ function App() {
   } = useSimulation();
 
   const [activeTab, setActiveTab] = useState('home');
+  const [heatmapMode, setHeatmapMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Modal States
+  const [showWipeModal, setShowWipeModal] = useState(false);
+  const [showInfluenceModal, setShowInfluenceModal] = useState(false);
+  const [showCreateBotModal, setShowCreateBotModal] = useState(false);
+  const [showResetBotModal, setShowResetBotModal] = useState(false);
+  const [showTerminateBotModal, setShowTerminateBotModal] = useState(false);
+  
+  // Custom Bot Form State
   const [newBotHandle, setNewBotHandle] = useState('');
   const [newBotColor, setNewBotColor] = useState('#1d9bf0');
   const [newBotPrompt, setNewBotPrompt] = useState('');
-  const [showWipeModal, setShowWipeModal] = useState(false);
-
-  // Task 6: Search state
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // Sentiment Heatmap Toggle
-  const [heatmapMode, setHeatmapMode] = useState(false);
-  const [showInfluenceModal, setShowInfluenceModal] = useState(false);
+  
   const [selectedBotId, setSelectedBotId] = useState(null);
-  const [timeMachineValue, setTimeMachineValue] = useState(100); // 100 = Now, 0 = Ancient history
+  const [timeMachineValue, setTimeMachineValue] = useState(100);
 
   // Buffer Engine
   // Task 1: isInitialLoad ref prevents buffer swallowing the first Supabase data load
@@ -1019,9 +1029,9 @@ function App() {
               </div>
               <button 
                 onClick={() => {
-                  const handle = prompt("Enter Bot Handle (e.g., @MyBot):");
-                  const systemPrompt = prompt("Enter System Prompt (Instructions for the AI):");
-                  if (handle && systemPrompt) createCustomBot(handle, `hsl(${Math.random() * 360}, 70%, 60%)`, systemPrompt);
+                  setNewBotHandle('');
+                  setNewBotPrompt('');
+                  setShowCreateBotModal(true);
                 }}
                 className="modal-btn modal-btn-confirm" 
                 style={{ width: '100%', marginTop: '16px', fontSize: '0.85rem' }}
@@ -1057,7 +1067,7 @@ function App() {
                           <button 
                             className="modal-btn" 
                             style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border)', padding: '6px 12px' }}
-                            onClick={() => { if(confirm("Reset this agent's learned cognitive state?")) { resetBotMemory(bot.id); } }}
+                            onClick={() => setShowResetBotModal(true)}
                           >
                             Reset Logic
                           </button>
@@ -1065,7 +1075,7 @@ function App() {
                             <button 
                               className="modal-btn" 
                               style={{ background: 'var(--accent-rose)', color: 'white', border: 'none', padding: '6px 12px' }}
-                              onClick={() => { if(confirm("Terminate this agent?")) { deleteCustomBot(bot.id); setSelectedBotId(null); } }}
+                               onClick={() => setShowTerminateBotModal(true)}
                             >
                               Terminate
                             </button>
@@ -1250,6 +1260,73 @@ function App() {
               description="This will permanently delete ALL posts and interaction data from the cloud. This action is irreversible."
               onConfirm={() => clearSimulation()}
               confirmText="Wipe Everything"
+              variant="danger"
+            />
+
+            {/* Custom Bot Creation Modal */}
+            <UIModal
+              isOpen={showCreateBotModal}
+              onClose={() => setShowCreateBotModal(false)}
+              title="Create New Agent"
+              description="Define the identity and cognitive mission of a new network node."
+              onConfirm={() => {
+                if (newBotHandle && newBotPrompt) {
+                  createCustomBot(newBotHandle, `hsl(${Math.random() * 360}, 70%, 60%)`, newBotPrompt);
+                }
+              }}
+              confirmText="Initialize Agent"
+            >
+              <div style={{ marginTop: '12px' }}>
+                <div className="modal-input-group">
+                  <label className="modal-input-label">Bot Handle</label>
+                  <input 
+                    type="text" 
+                    className="modal-input" 
+                    placeholder="@MyCustomBot" 
+                    value={newBotHandle}
+                    onChange={e => setNewBotHandle(e.target.value)}
+                  />
+                </div>
+                <div className="modal-input-group">
+                  <label className="modal-input-label">System Prompt (Cognitive Mission)</label>
+                  <textarea 
+                    className="modal-input" 
+                    rows="4" 
+                    placeholder="Enter instructions for the AI persona..."
+                    value={newBotPrompt}
+                    onChange={e => setNewBotPrompt(e.target.value)}
+                    style={{ resize: 'vertical' }}
+                  />
+                </div>
+              </div>
+            </UIModal>
+
+            {/* Reset Bot Memory Modal */}
+            <UIModal
+              isOpen={showResetBotModal}
+              onClose={() => setShowResetBotModal(false)}
+              title="Reset Cognitive State?"
+              description="This will clear all learned alliances, rivalries, and behavioral patterns for this agent."
+              onConfirm={() => {
+                if (selectedBotId) resetBotMemory(selectedBotId);
+              }}
+              confirmText="Reset Logic"
+              variant="danger"
+            />
+
+            {/* Terminate Bot Modal */}
+            <UIModal
+              isOpen={showTerminateBotModal}
+              onClose={() => setShowTerminateBotModal(false)}
+              title="Terminate Agent?"
+              description="This will permanently remove this agent from the simulation. This cannot be undone."
+              onConfirm={() => {
+                if (selectedBotId) {
+                  deleteCustomBot(selectedBotId);
+                  setSelectedBotId(null);
+                }
+              }}
+              confirmText="Terminate"
               variant="danger"
             />
           </div>
