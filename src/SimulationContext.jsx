@@ -62,14 +62,12 @@ const SimulationContext = createContext(null);
 export const useSimulation = () => useContext(SimulationContext);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ML UTILITY: Multi-factor post scoring for candidate selection
-// Combines recency, controversy (reply count), engagement (likes+shares), and novelty
 // ─────────────────────────────────────────────────────────────────────────────
 export const scoreCandidatePost = (post, now) => {
   const AGE_DECAY_MS = 30 * 60 * 1000; // 30-minute half-life
   const ageMs = now - post.timestamp;
 
-  // Recency score: exponential decay (more recent = higher score)
+  // Recency score: exponential decay
   const recencyScore = Math.exp(-ageMs / AGE_DECAY_MS);
 
   // Controversy score: more replies = more debate potential
@@ -79,7 +77,13 @@ export const scoreCandidatePost = (post, now) => {
   // Engagement score: likes + shares signal importance
   const engagementScore = Math.log1p((post.likes || 0) + (post.shares || 0)) * 0.3;
 
-  return recencyScore + controversyScore + engagementScore;
+  // Human Priority Boost: Drastically increase score for human posts to capture bot attention
+  const humanBoost = (post.author.id === 'human_user' || post.author.id === 'user-123') ? 1.5 : 0;
+
+  // Thread Momentum: Boost for posts that are replies (joining an existing conversation)
+  const momentumBoost = post.replyToId ? 0.2 : 0;
+
+  return recencyScore + controversyScore + engagementScore + humanBoost + momentumBoost;
 };
 
 // ── Global Stance Cache (0 API Cost for duplicate evaluations) ─────────────
@@ -161,16 +165,43 @@ export const generateBotText = async (groqInstance, bot, prompt, systemPrompt, a
   });
 };
 
+// ── UTILS: Stable hashing for cache keys ──────────────────────────────────────
+const hashString = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(16);
+};
+
 // ── ML: Stance & Sentiment Evaluation ───────────────────────────────────────
 // Uses the LLM to evaluate the bot's agreement and detect overall sentiment.
 export const evaluateStance = async (groqInstance, bot, post, activePrompts, threadContext = null) => {
-  if (!groqInstance) return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' };
+  if (!groqInstance) return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral', reasoning: null };
   
-  // T3: Token Economy - Caching
-  const cacheKey = `${bot.role}_${post.text.substring(0, 50)}`;
+  // T3: Multi-tier Token Economy - Caching
+  const textHash = hashString(post.text);
+  const cacheKey = `${bot.role}_${textHash}`;
+  
+  // Tier 1: Memory Cache (Instant)
   if (stanceCache.has(cacheKey)) {
     const cached = stanceCache.get(cacheKey);
     return { ...cached, confidence: Math.max(0, Math.min(1, cached.confidence + (Math.random() * 0.1 - 0.05))) };
+  }
+
+  // Tier 2: Supabase Cache (Persistent)
+  try {
+    // maybeSingle() prevents 406 error when record is not found
+    const { data: persistentRecord } = await supabase.from('intelligence_cache').select('eval_data').eq('text_hash', cacheKey).maybeSingle();
+    if (persistentRecord) {
+      const result = persistentRecord.eval_data;
+      stanceCache.set(cacheKey, result);
+      return result;
+    }
+  } catch (err) {
+    // Ignore silenty, continue to LLM
   }
 
   return throttledLLMCall(async () => {
@@ -199,15 +230,19 @@ sentiment must be one of: "Joy", "Anger", "Fear", "Sadness", "Surprise", "Disgus
 
       const raw = completion.choices[0]?.message?.content?.trim() || '';
       const match = raw.match(/\{[^}]+\}/);
-      if (!match) return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' };
+      if (!match) return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral', reasoning: null };
       const parsed = JSON.parse(match[0]);
       const stance = ['AGREE', 'DISAGREE', 'NEUTRAL'].includes(parsed?.stance) ? parsed.stance : 'NEUTRAL';
       const confidence = Math.min(1, Math.max(0, Number(parsed?.confidence) || 0));
       const validSentiments = ['Joy', 'Anger', 'Fear', 'Sadness', 'Surprise', 'Disgust', 'Neutral'];
       const sentiment = validSentiments.includes(parsed?.sentiment) ? parsed.sentiment : 'Neutral';
       
-      const result = { stance, confidence, sentiment };
+      const result = { stance, confidence, sentiment, reasoning: parsed?.reasoning || null };
+      
+      // Update both caches
       stanceCache.set(cacheKey, result);
+      await supabase.from('intelligence_cache').upsert({ text_hash: cacheKey, eval_data: result }, { onConflict: 'text_hash' });
+      
       if (stanceCache.size > 200) {
         const firstKey = stanceCache.keys().next().value;
         stanceCache.delete(firstKey);
@@ -218,7 +253,7 @@ sentiment must be one of: "Joy", "Anger", "Fear", "Sadness", "Surprise", "Disgus
       if (!e?.message?.includes('429') && !e?.message?.includes('rate')) {
         isDev && console.warn(`Stance eval failed for ${bot.handle}:`, e.message);
       }
-      return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' };
+      return { stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral', reasoning: null };
     }
   });
 };
@@ -306,40 +341,18 @@ export const existsInTree = (postsArr, id) => {
 };
 
 export const dbRowToPost = (row) => {
-  // T1: Extract metadata proof from text if present (Fallback for missing JSONB columns)
-  let cleanText = row.text || '';
-  let meta = { likes: [], shares: [] };
-  
-  // Robust hidden metadata extraction: match any hidden [social_proof:...] block
-  const metaRegex = /\s*\[social_proof:({.*?})\]\s*$/s;
-  const metaMatch = cleanText.match(metaRegex);
-  
-  if (metaMatch) {
-    try {
-      meta = JSON.parse(metaMatch[1]);
-      // Strip ALL meta blocks from the clean text
-      cleanText = cleanText.replace(/\s*\[social_proof:.*?\]\s*$/gs, '').trim();
-    } catch (e) {
-      console.warn("Failed to parse social proof metadata:", e);
-    }
-  }
-
-  // Support dedicated JSONB columns if they exist (User preference)
-  if (row.likes_json) meta.likes = Array.isArray(row.likes_json) ? row.likes_json : meta.likes;
-  if (row.shares_json) meta.shares = Array.isArray(row.shares_json) ? row.shares_json : meta.shares;
-
   return {
     id: row.id,
     author: { id: row.author_id, handle: row.author_handle, color: row.author_color },
-    text: cleanText,
+    text: row.text || '',
+    thought: row.thought || null, // Persisted internal monologue
     timestamp: row.timestamp,
     likes: row.likes || 0,
     shares: row.shares || 0,
     replies: [],
-    // T1: Persist reply attribution from DB
     replyToHandle: row.reply_to_handle || null,
     replyToId: row.parent_id || null,
-    meta // Hidden metadata for reconstruction
+    meta: { likes: [], shares: [] }
   };
 };
 
@@ -457,39 +470,64 @@ export const SimulationProvider = ({ children }) => {
   // ── Supabase Initial Load ───────────────────────────────────────────────────
   useEffect(() => {
     const loadFromSupabase = async () => {
-      const { data: dbPosts } = await supabase
-        .from('posts')
-        .select('*')
-        .order('timestamp', { ascending: true });
-      if (dbPosts && dbPosts.length > 0) {
+      try {
+        // 1. Load Simulation Settings
+        const { data: settings, error: settingsError } = await supabase.from('simulation_settings').select('*').eq('id', 'global').single();
+        if (settingsError) isDev && console.warn("[DB] Settings load failed:", settingsError);
+        if (settings) {
+          setOutrageMultiplier(settings.outrage_multiplier);
+          setCuriosityMultiplier(settings.curiosity_multiplier);
+        }
+
+        // 2. Load Custom Bots so we have them for interaction mapping
+        const { data: customBots } = await supabase.from('custom_bots').select('*');
+        const formattedCustom = (customBots || []).map(b => ({
+          id: b.id, handle: b.handle, role: b.role, color: b.color,
+          baseLikelihoodToPost: b.base_likelihood_to_post, baseLikelihoodToReply: b.base_likelihood_to_reply,
+          engagementThreshold: b.engagement_threshold, likelihoodToLike: b.likelihood_to_like,
+          likelihoodToShare: b.likelihood_to_share, narrativeGoal: b.narrative_goal, lastActive: Date.now()
+        }));
+        
+        const allBots = [...INITIAL_BOTS, ...formattedCustom];
+        setActiveBots(allBots);
+        
+        const newPrompts = {};
+        (customBots || []).forEach(b => { newPrompts[b.role] = b.system_prompt; });
+        setActivePrompts(prev => ({ ...prev, ...newPrompts }));
+
+        // 3. Load Posts
+        const { data: dbPosts, error: postsError } = await supabase.from('posts').select('*').order('timestamp', { ascending: true });
+        if (postsError) throw postsError;
+        if (!dbPosts) return;
         setPostsFromFlat(dbPosts);
 
-        // RECONSTRUCT Social Proof and human state from flat rows
+        // 4. Load Interactions and map them using allBots
         const initialInteractors = {};
         const likedSet = new Set();
         const sharedSet = new Set();
+        const { data: dbInteractions } = await supabase.from('post_interactions').select('*');
+        
+        if (dbInteractions) {
+          dbInteractions.forEach(intr => {
+            if (!initialInteractors[intr.post_id]) initialInteractors[intr.post_id] = { likes: [], shares: [], replies: [] };
+            const actor = allBots.find(b => b.id === intr.actor_id) || (intr.actor_id === USER_PERSONA.id ? USER_PERSONA : null);
+            if (actor) {
+              const entry = { id: actor.id, handle: actor.handle, color: actor.color, type: intr.type };
+              if (intr.type === 'like') {
+                initialInteractors[intr.post_id].likes.push(entry);
+                if (intr.actor_id === USER_PERSONA.id) likedSet.add(intr.post_id);
+              } else if (intr.type === 'share') {
+                initialInteractors[intr.post_id].shares.push(entry);
+                if (intr.actor_id === USER_PERSONA.id) sharedSet.add(intr.post_id);
+              }
+            }
+          });
+        }
 
+        // 5. Calculate Reply Attribution
         dbPosts.forEach(row => {
-          const post = dbRowToPost(row);
-          if (!initialInteractors[post.id]) initialInteractors[post.id] = { likes: [], shares: [], replies: [] };
-          
-          // Hydrate from parsed meta
-          if (post.meta?.likes?.length > 0) {
-            initialInteractors[post.id].likes = post.meta.likes;
-            if (post.meta.likes.some(l => l.id === USER_PERSONA.id)) {
-              likedSet.add(post.id);
-            }
-          }
-          if (post.meta?.shares?.length > 0) {
-            initialInteractors[post.id].shares = post.meta.shares;
-            if (post.meta.shares.some(s => s.id === USER_PERSONA.id)) {
-              sharedSet.add(post.id);
-            }
-          }
-
           if (row.parent_id) {
             if (!initialInteractors[row.parent_id]) initialInteractors[row.parent_id] = { likes: [], shares: [], replies: [] };
-            if (!initialInteractors[row.parent_id].replies) initialInteractors[row.parent_id].replies = [];
             if (!initialInteractors[row.parent_id].replies.some(r => r.id === row.author_id)) {
               initialInteractors[row.parent_id].replies.push({ 
                 id: row.author_id, handle: row.author_handle, color: row.author_color, type: 'reply' 
@@ -499,27 +537,24 @@ export const SimulationProvider = ({ children }) => {
         });
 
         setPostInteractors(initialInteractors);
-        
-        // Task 3: Persistence - Optimized storage usage
         humanInteractionsRef.current = { liked: likedSet, shared: sharedSet };
         setHumanLiked(new Set(likedSet));
         setHumanShared(new Set(sharedSet));
 
-        // Task 3: Catch-up simulation
-        const latestTimestamp = Math.max(...dbPosts.map(p => p.timestamp));
+        // 6. Catch-up logic
+        const latestTimestamp = Math.max(...dbPosts.map(p => p.timestamp), 0);
         const missedMinutes = (Date.now() - latestTimestamp) / 60000;
-        if (missedMinutes > 5) {
+        if (missedMinutes > 5 && dbPosts.length > 0) {
           const catchUpCount = Math.min(3, Math.floor(missedMinutes / 10));
           isDev && console.log(`[Catch-up] ${missedMinutes.toFixed(1)} min elapsed, running ${catchUpCount} catch-up post(s)`);
-          const shuffledBots = [...BOT_PERSONAS].sort(() => Math.random() - 0.5).slice(0, catchUpCount);
-          shuffledBots.forEach((bot, i) => {
+          [...allBots].sort(() => Math.random() - 0.5).slice(0, catchUpCount).forEach((bot, i) => {
             setTimeout(() => createNewPost(bot), 3000 + i * 5000);
           });
         }
-      }
-      // Load Bot Memories
-      try {
-        const { data: mems } = await supabase.from('bot_memories').select('*');
+
+        // 7. Load Bot Memories
+        const { data: mems, error: memsError } = await supabase.from('bot_memories').select('*');
+        if (memsError) isDev && console.warn("[DB] Memories load failed:", memsError);
         if (mems) {
           mems.forEach(m => {
             const raw = m.memory_json;
@@ -536,10 +571,10 @@ export const SimulationProvider = ({ children }) => {
           isDev && console.log(`[LTM] Loaded memories for ${mems.length} bots.`);
         }
       } catch (e) {
-        isDev && console.warn("[LTM] Failed to load bot memories:", e);
+        isDev && console.warn("[DB] Load failed:", e);
+      } finally {
+        setIsLoaded(true);
       }
-
-      setIsLoaded(true);
     };
     loadFromSupabase();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -569,7 +604,67 @@ export const SimulationProvider = ({ children }) => {
         const row = payload.new;
         setPosts(prev => updatePostDeep(prev, row.id, { likes: row.likes, shares: row.shares }));
       })
-      .subscribe();
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'custom_bots' }, payload => {
+        const row = payload.new;
+        setActiveBots(prev => {
+          if (prev.find(b => b.id === row.id)) return prev;
+          const uiBot = {
+            id: row.id, handle: row.handle, role: row.role, color: row.color,
+            baseLikelihoodToPost: row.base_likelihood_to_post,
+            baseLikelihoodToReply: row.base_likelihood_to_reply,
+            engagementThreshold: row.engagement_threshold,
+            likelihoodToLike: row.likelihood_to_like,
+            likelihoodToShare: row.likelihood_to_share,
+            narrativeGoal: row.narrative_goal,
+            lastActive: Date.now()
+          };
+          return [...prev, uiBot];
+        });
+        setActivePrompts(prev => ({ ...prev, [row.role]: row.system_prompt }));
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'custom_bots' }, payload => {
+        const row = payload.new;
+        setActiveBots(prev => prev.map(b => b.id === row.id ? { 
+          ...b, 
+          handle: row.handle, color: row.color,
+          baseLikelihoodToPost: row.base_likelihood_to_post,
+          baseLikelihoodToReply: row.base_likelihood_to_reply,
+          engagementThreshold: row.engagement_threshold,
+          likelihoodToLike: row.likelihood_to_like,
+          likelihoodToShare: row.likelihood_to_share
+        } : b));
+        setActivePrompts(prev => ({ ...prev, [row.role]: row.system_prompt }));
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'custom_bots' }, payload => {
+        const row = payload.old;
+        setActiveBots(prev => prev.filter(b => b.id !== row.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'simulation_settings' }, payload => {
+        isDev && console.log("[Realtime] Settings update received:", payload);
+        const row = payload.new;
+        if (row && row.id === 'global') {
+          setOutrageMultiplier(row.outrage_multiplier);
+          setCuriosityMultiplier(row.curiosity_multiplier);
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_interactions' }, payload => {
+        const intr = payload.new || payload.old;
+        if (!intr) return;
+        
+        if (payload.eventType === 'INSERT') {
+          // Robust lookup using latest bots from ref to avoid closure staleness
+          const currentBots = stateRef.current.activeBots;
+          const actor = currentBots.find(b => b.id === intr.actor_id) || (intr.actor_id === USER_PERSONA.id ? USER_PERSONA : null);
+          if (actor) {
+            recordInteraction(intr.post_id, intr.type, actor);
+          }
+        } else if (payload.eventType === 'DELETE') {
+          removeInteraction(intr.post_id, intr.type, intr.actor_id);
+        }
+      })
+      .subscribe((status) => {
+        isDev && console.log(`[Realtime] Sync channel status: ${status}`);
+      });
 
     return () => { supabase.removeChannel(channel); };
   }, [isLoaded]);
@@ -602,45 +697,29 @@ export const SimulationProvider = ({ children }) => {
     setAuthorMap(newAuthorMap);
   };
 
-  const addReplyDeepById = (postsArr, targetId, replyPost) => {
-    return postsArr.map(node => {
-      if (node.id === targetId) {
-        if (node.replies.find(r => r.id === replyPost.id)) return node;
-        return { ...node, replies: [...(node.replies || []), replyPost] };
-      }
-      if (node.replies?.length > 0) return { ...node, replies: addReplyDeepById(node.replies, targetId, replyPost) };
-      return node;
-    });
-  };
-
-  const updatePostDeep = (postsArr, postId, updates) => {
-    return postsArr.map(p => {
-      if (p.id === postId) return { ...p, ...updates };
-      if (p.replies?.length > 0) return { ...p, replies: updatePostDeep(p.replies, postId, updates) };
-      return p;
-    });
-  };
-
-  // T4: Remove a post (or nested reply) from the tree by id
-  const removePostDeep = (postsArr, postId) => {
-    return postsArr
-      .filter(p => p.id !== postId)
-      .map(p => p.replies?.length > 0
-        ? { ...p, replies: removePostDeep(p.replies, postId) }
-        : p
-      );
-  };
+  const addReplyDeepById = (arr, id, reply) => arr.map(p => p.id === id ? (p.replies.find(r => r.id === reply.id) ? p : { ...p, replies: [...p.replies, reply] }) : { ...p, replies: addReplyDeepById(p.replies || [], id, reply) });
+  const updatePostDeep = (arr, id, up) => arr.map(p => p.id === id ? { ...p, ...up } : { ...p, replies: updatePostDeep(p.replies || [], id, up) });
+  const removePostDeep = (arr, id) => arr.filter(p => p.id !== id).map(p => ({ ...p, replies: removePostDeep(p.replies || [], id) }));
 
   // ── (Extracted logic for bot text and stance evaluation) ──────────────────
 
   // ── LLM: Generate an engagement-aware reply ─────────────────────────────────
   // Generates a reply tonally aligned with the bot's stance and detected Sentiment
   const generateEngagementReply = async (bot, post, stance, sentiment) => {
-    const toneInstruction = stance === 'AGREE'
+    const memory = getBotMemory(bot.id);
+    const opinion = memory.socialGraph[post.author.id] || 0;
+    
+    let toneInstruction = stance === 'AGREE'
       ? `You AGREE with this post. Express authentic support matching your detected emotion of ${sentiment}. Build on it, validate the perspective.`
       : `You DISAGREE with this post. Push back with a counterargument rooted in your worldview and your detected emotion of ${sentiment}. Be critical but not hateful.`;
 
-    const prompt = `${toneInstruction}
+    // Incorporate Social Opinion into tone
+    if (opinion > 0.5) toneInstruction += " Since you really like/trust this person, be extra supportive and friendly.";
+    if (opinion < -0.5) toneInstruction += " Since you dislike/distrust this person, be extra sharp, skeptical, or dismissive.";
+
+    const intentContext = post.thought ? `\n\n[Author's Internal Intent]: "${post.thought}"` : '';
+
+    const prompt = `${toneInstruction}${intentContext}
 
 Post from ${post.author.handle}: "${post.text}"
 
@@ -669,50 +748,47 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       memory.socialGraph[authorId] = Math.max(-1.0, currentOpinion - 0.05);
     }
 
-    // Act Smart: Weight likelihoods based on opinion
-    // High opinion = more likely to like/share supportively
-    // Low opinion = more likely to reply critically
-    const opinionBonus = currentOpinion * 0.2; // +/- 20% swing
+    // T5: Sentiment Feedback Loop - Track how authors are perceived
+    const authorMemory = getBotMemory(authorId);
+    if (authorMemory) {
+      authorMemory.receivedSentiments.push(sentiment);
+      if (authorMemory.receivedSentiments.length > 20) authorMemory.receivedSentiments.shift();
+    }
 
-    const shouldLike = stance === 'AGREE' && Math.random() < (bot.likelihoodToLike + opinionBonus);
-    const shouldShare = stance === 'AGREE' && confidence >= 0.8 && Math.random() < (bot.likelihoodToShare + opinionBonus);
+    // Act Smart: Weight likelihoods based on opinion (Social Memory)
+    // Alliances (>0.5 opinion) and Rivalries (<-0.5 opinion)
+    const isAlly = currentOpinion > 0.5;
+    const isRival = currentOpinion < -0.5;
+    
+    const opinionBonus = currentOpinion * 0.3; // Increased to +/- 30% swing
+    
+    const shouldLike = stance === 'AGREE' && Math.random() < (bot.likelihoodToLike + opinionBonus + (isAlly ? 0.2 : 0));
+    const shouldShare = stance === 'AGREE' && confidence >= 0.7 && Math.random() < (bot.likelihoodToShare + opinionBonus + (isAlly ? 0.15 : 0));
     const shouldReply =
-      (stance === 'AGREE' && confidence >= 0.9) ||
-      (stance === 'DISAGREE' && confidence >= (bot.engagementThreshold - opinionBonus));
+      (stance === 'AGREE' && confidence >= 0.8) || 
+      (stance === 'DISAGREE' && confidence >= (bot.engagementThreshold - opinionBonus - (isRival ? 0.3 : 0))) ||
+      (isRival && stance === 'DISAGREE' && Math.random() < 0.4); // Rivals love to argue even with low confidence
 
     isDev && console.log(
-      `[Social Intelligence] ${bot.handle} Opinion of ${post.author.handle}: ${currentOpinion.toFixed(2)} | ` +
+      `[Social Intelligence] ${bot.handle} Opinion of ${post.author.handle}: ${currentOpinion.toFixed(2)} (${isAlly ? 'Ally' : isRival ? 'Rival' : 'Neutral'}) | ` +
       `Actions: ${[shouldLike && '❤️', shouldShare && '🔁', shouldReply && '💬'].filter(Boolean).join(' ') || '(skip)'}`
     );
 
     // Stagger actions naturally so they don't all fire simultaneously
     const actions = [];
 
-    if (shouldLike) {
-      actions.push(async () => {
-        await new Promise(r => setTimeout(r, 500 + Math.random() * 3000));
-        const { data } = await supabase.from('posts').select('likes').eq('id', post.id).single();
-        const newLikes = (data?.likes || 0) + 1;
-        await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
-        recordInteraction(post.id, 'like', bot);
-        updatePersistentMeta(post.id, 'like', bot, false);
-        if (!memory.myInteractions[post.id]) memory.myInteractions[post.id] = {};
-        memory.myInteractions[post.id].liked = true;
-      });
-    }
+    const runAction = (type, delay) => actions.push(async () => {
+      await new Promise(r => setTimeout(r, delay + Math.random() * 3000));
+      const { data } = await supabase.from('posts').select(type + 's').eq('id', post.id).single();
+      await supabase.from('posts').update({ [type + 's']: (data?.[type + 's'] || 0) + 1 }).eq('id', post.id);
+      recordInteraction(post.id, type, bot);
+      await supabase.from('post_interactions').insert({ post_id: post.id, actor_id: bot.id, type });
+      if (!memory.myInteractions[post.id]) memory.myInteractions[post.id] = {};
+      memory.myInteractions[post.id][type === 'like' ? 'liked' : 'shared'] = true;
+    });
 
-    if (shouldShare) {
-      actions.push(async () => {
-        await new Promise(r => setTimeout(r, 1000 + Math.random() * 3000));
-        const { data } = await supabase.from('posts').select('shares').eq('id', post.id).single();
-        const newShares = (data?.shares || 0) + 1;
-        await supabase.from('posts').update({ shares: newShares }).eq('id', post.id);
-        recordInteraction(post.id, 'share', bot);
-        updatePersistentMeta(post.id, 'share', bot, false);
-        if (!memory.myInteractions[post.id]) memory.myInteractions[post.id] = {};
-        memory.myInteractions[post.id].shared = true;
-      });
-    }
+    if (shouldLike) runAction('like', 500);
+    if (shouldShare) runAction('share', 1000);
 
     if (shouldReply) {
       actions.push(async () => {
@@ -763,31 +839,71 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   // ── Core: Organic Bot Post ──────────────────────────────────────────────────
   const createNewPost = async (bot) => {
     setGeneratingBots(prev => new Set(prev).add(bot.id));
-    const randomTopic = POST_TOPIC_POOL[Math.floor(Math.random() * POST_TOPIC_POOL.length)];
-    const prompt = `Share a short, highly opinionated hot take about: ${randomTopic}. Be direct and passionate. No hashtags, no filler phrases, no quotes.`;
-    const text = await generateBotText(groq, bot, prompt, null, stateRef.current.activePrompts);
-    setGeneratingBots(prev => {
-      const next = new Set(prev);
-      next.delete(bot.id);
-      return next;
-    });
+    
+    try {
+      const currentState = stateRef.current;
+      const recentPosts = currentState.posts.slice(0, 5);
+      const feedContext = recentPosts.map(p => `${p.author.handle}: "${p.text.slice(0, 40)}..."`).join(' | ');
+      
+      // 1. Internal Deliberation (Determine Topic & Intent)
+      const thoughtPrompt = `Look at the recent feed activity: [${feedContext}]. 
+Based on your persona and mission (${bot.narrativeGoal || 'opinionated participation'}), what specific topic or angle are you currently thinking about? 
+Respond with a short 1-sentence internal monologue of your intent (e.g., "I'm seeing too much optimism, I need to bring some harsh reality to this thread.").`;
+      
+      const internalThought = await generateBotText(groq, bot, thoughtPrompt, "You are thinking to yourself.", currentState.activePrompts);
+      
+      // 2. Generation of actual post based on thought
+      const postPrompt = `Basing your post on your current thought: "${internalThought || 'I want to share a hot take.'}".
+Share a short, highly opinionated post. Be direct and passionate. No hashtags, no filler, no quotes.`;
+      
+      const text = await generateBotText(groq, bot, postPrompt, null, currentState.activePrompts);
 
-    // Silently abort if LLM returned nothing (e.g. rate limited)
-    if (!text) return;
+      setGeneratingBots(prev => {
+        const next = new Set(prev);
+        next.delete(bot.id);
+        return next;
+      });
 
-    const postId = `post_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const newPost = { id: postId, author: bot, text, timestamp: Date.now(), replies: [], likes: 0, shares: 0 };
+      if (!text) return;
 
-    await supabase.from('posts').insert({
-      id: postId, author_id: bot.id, author_handle: bot.handle, author_color: bot.color,
-      text, timestamp: newPost.timestamp, parent_id: null, likes: 0, shares: 0
-    });
+      const postId = `post_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const newPost = { 
+        id: postId, 
+        author: bot, 
+        text, 
+        thought: internalThought,
+        timestamp: Date.now(), 
+        replies: [], 
+        likes: 0, 
+        shares: 0 
+      };
 
-    setPosts(prev => {
-      if (existsInTree(prev, postId)) return prev;
-      return [newPost, ...prev];
-    });
-    markActive([bot.id]);
+      await supabase.from('posts').insert({
+        id: postId, 
+        author_id: bot.id, 
+        author_handle: bot.handle, 
+        author_color: bot.color,
+        text, 
+        thought: internalThought,
+        timestamp: newPost.timestamp, 
+        parent_id: null, 
+        likes: 0, 
+        shares: 0
+      });
+
+      setPosts(prev => {
+        if (existsInTree(prev, postId)) return prev;
+        return [newPost, ...prev];
+      });
+      markActive([bot.id]);
+    } catch (e) {
+      isDev && console.error("[Social Brain] Post generation failed:", e);
+      setGeneratingBots(prev => {
+        const next = new Set(prev);
+        next.delete(bot.id);
+        return next;
+      });
+    }
   };
 
   // ── Advanced NLP Lexicons & TF Scoring ──────────────────────────────────────
@@ -888,16 +1004,21 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       if (!candidate) return;
 
       // 3. NLP Term Frequency Analysis (Skimming)
+      const sanitizedText = candidate.text.toLowerCase().replace(/[^a-z\s]/g, '');
       const interests = getPersonaKeywords(bot.role);
       const tfScore = calculateTFScore(candidate.text, interests);
       
       // Also check basic polar sentiment to force interaction on extreme posts
       const isHighlyNegative = calculateTFScore(candidate.text, sentimentLexicon.negative) > 0.1;
       const isHighlyPositive = calculateTFScore(candidate.text, sentimentLexicon.positive) > 0.1;
+
+      // Human Attention Boost: bots are much more likely to pay attention to human users
+      const isHumanPost = candidate.author.id === 'human_user' || candidate.author.id === 'user-123';
+      const humanAttentionModifier = isHumanPost ? 0.4 : 0;
       
       // Condition: High TF score, extreme sentiment, OR pure epsilon-random exploration
-      const isExploring = Math.random() < memory.epsilon;
-      const catchesAttention = (tfScore > 0.15) || isHighlyNegative || isHighlyPositive || isExploring;
+      const isExploring = Math.random() < (memory.epsilon + humanAttentionModifier);
+      const catchesAttention = (tfScore > 0.15) || isHighlyNegative || isHighlyPositive || isExploring || isHumanPost;
       
       if (!catchesAttention) {
         // NLP engine rejected the post. 0 API cost.
@@ -917,12 +1038,15 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
 
       // 4. Thread Context Perception (Context-Aware Intelligence)
       let threadContext = "";
+      let momentumBoost = 0;
       if (candidate.parent_id) {
         const parent = selectPostById(currentState.posts, candidate.parent_id);
         if (parent) {
+          momentumBoost = 0.15; // Higher engagement on threads
           threadContext = `Reply to ${parent.author.handle}: "${parent.text.slice(0, 100)}..."`;
           const siblings = parent.replies?.filter(r => r.id !== candidate.id) || [];
           if (siblings.length > 0) {
+            momentumBoost += 0.05 * siblings.length; // More replies = more momentum
             threadContext += `\nOther replies in thread: ${siblings.map(s => `${s.author.handle}: "${s.text.slice(0, 50)}..."`).join(' | ')}`;
           }
         }
@@ -933,12 +1057,15 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       memory.lastActionTime = Date.now();
       
       let { stance, confidence, sentiment, reasoning } = await evaluateStance(groq, bot, candidate, currentState.activePrompts, threadContext);
+      
+      // Apply momentum boost to confidence
+      confidence = Math.min(1.0, confidence + momentumBoost);
       memory.lastSentiment = sentiment;
       if (reasoning) isDev && console.log(`[Thought] ${bot.handle}: ${reasoning}`);
 
-      // 5. Memory consistency check & Persuasion tracking
-      const sanitizedText = candidate.text.toLowerCase().replace(/['"`]/g, '').replace(/[.,/#!$%^&*;:{}=\-_~()"]/g, '');
-      const topicKey = sanitizedText.split(/\s+/).slice(0, 4).join(' ');
+      // 6. Memory consistency check & Persuasion tracking
+      const topicBaseText = candidate.text.toLowerCase().replace(/['"`]/g, '').replace(/[.,/#!$%^&*;:{}=\-_~()"]/g, '');
+      const topicKey = topicBaseText.split(/\s+/).slice(0, 4).join(' ');
       const priorStance = memory.topicStances.get(topicKey);
       
       let currentThreshold = memory.dynamicThreshold !== null ? memory.dynamicThreshold : bot.engagementThreshold;
@@ -1031,38 +1158,12 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   };
 
   // ── Human Interaction APIs ──────────────────────────────────────────────────
-  const updatePersistentMeta = async (postId, type, actor, isRemoval = false) => {
-    // 1. Fetch current row
-    const { data: row } = await supabase.from('posts').select('*').eq('id', postId).single();
-    if (!row) return;
-
-    const post = dbRowToPost(row);
-    let likes = post.meta?.likes || [];
-    let shares = post.meta?.shares || [];
-
-    if (type === 'like') {
-      if (isRemoval) likes = likes.filter(a => a.id !== actor.id);
-      else if (!likes.some(a => a.id === actor.id)) likes.push({ id: actor.id, handle: actor.handle, color: actor.color, type: 'like' });
-    } else if (type === 'share') {
-      if (isRemoval) shares = shares.filter(a => a.id !== actor.id);
-      else if (!shares.some(a => a.id === actor.id)) shares.push({ id: actor.id, handle: actor.handle, color: actor.color, type: 'share' });
-    }
-
-    // Always append to the CLEAN text to avoid metadata chains
-    const newProof = `\n\n[social_proof:${JSON.stringify({ likes, shares })}]`;
-    const updateData = { 
-       text: post.text + newProof
-    };
-    
-    // Column fallback removed as it causes 400 errors if columns don't exist
-    
-    await supabase.from('posts').update(updateData).eq('id', postId);
-  };
 
   const likePost = async (postId, authorId) => {
     // T2: Toggle like — unlike if already liked, like if not
     const alreadyLiked = humanInteractionsRef.current.liked.has(postId);
-    const { data } = await supabase.from('posts').select('likes').eq('id', postId).single();
+    const { data: postData } = await supabase.from('posts').select('likes').eq('id', postId).maybeSingle();
+    if (!postData) return; // Post might have been deleted
     if (alreadyLiked) {
       // Unlike
       humanInteractionsRef.current.liked.delete(postId);
@@ -1071,7 +1172,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       await supabase.from('posts').update({ likes: newLikes }).eq('id', postId);
       setPosts(prev => updatePostDeep(prev, postId, { likes: newLikes }));
       removeInteraction(postId, 'like', USER_PERSONA.id);
-      updatePersistentMeta(postId, 'like', USER_PERSONA, true);
+      await supabase.from('post_interactions').delete().match({ post_id: postId, actor_id: USER_PERSONA.id, type: 'like' });
     } else {
       // Like
       humanInteractionsRef.current.liked.add(postId);
@@ -1080,7 +1181,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       await supabase.from('posts').update({ likes: newLikes }).eq('id', postId);
       setPosts(prev => updatePostDeep(prev, postId, { likes: newLikes }));
       recordInteraction(postId, 'like', USER_PERSONA);
-      updatePersistentMeta(postId, 'like', USER_PERSONA, false);
+      await supabase.from('post_interactions').insert({ post_id: postId, actor_id: USER_PERSONA.id, type: 'like' });
       markActive([authorId]);
     }
   };
@@ -1088,7 +1189,8 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   const sharePost = async (postId, authorId) => {
     // T2: Toggle share — unshare if already shared
     const alreadyShared = humanInteractionsRef.current.shared.has(postId);
-    const { data } = await supabase.from('posts').select('shares').eq('id', postId).single();
+    const { data: postData } = await supabase.from('posts').select('shares').eq('id', postId).maybeSingle();
+    if (!postData) return;
     if (alreadyShared) {
       // Unshare
       humanInteractionsRef.current.shared.delete(postId);
@@ -1097,7 +1199,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       await supabase.from('posts').update({ shares: newShares }).eq('id', postId);
       setPosts(prev => updatePostDeep(prev, postId, { shares: newShares }));
       removeInteraction(postId, 'share', USER_PERSONA.id);
-      updatePersistentMeta(postId, 'share', USER_PERSONA, true);
+      await supabase.from('post_interactions').delete().match({ post_id: postId, actor_id: USER_PERSONA.id, type: 'share' });
     } else {
       // Share
       humanInteractionsRef.current.shared.add(postId);
@@ -1106,7 +1208,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       await supabase.from('posts').update({ shares: newShares }).eq('id', postId);
       setPosts(prev => updatePostDeep(prev, postId, { shares: newShares }));
       recordInteraction(postId, 'share', USER_PERSONA);
-      updatePersistentMeta(postId, 'share', USER_PERSONA, false);
+      await supabase.from('post_interactions').insert({ post_id: postId, actor_id: USER_PERSONA.id, type: 'share' });
       markActive([authorId]);
     }
   };
@@ -1131,6 +1233,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       author_handle: USER_PERSONA.handle,
       author_color: USER_PERSONA.color,
       text: reply.text,
+      thought: null, // Humans don't have simulated thoughts yet
       timestamp: reply.timestamp,
       parent_id: parentPost.id,
       likes: 0,
@@ -1155,7 +1258,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
 
     await supabase.from('posts').insert({
       id: postId, author_id: USER_PERSONA.id, author_handle: USER_PERSONA.handle,
-      author_color: USER_PERSONA.color, text, timestamp: newPost.timestamp,
+      author_color: USER_PERSONA.color, text, thought: null, timestamp: newPost.timestamp,
       parent_id: null, likes: 0, shares: 0
     });
 
@@ -1178,34 +1281,67 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   };
 
   const createCustomBot = async (handle, color, systemPrompt) => {
-    const botId = `bot_${Date.now()}`;
-    const botRole = `custom_${Date.now()}`;
     const fullHandle = handle.startsWith('@') ? handle : `@${handle}`;
+    const botRole = `custom_${Date.now()}`;
     const newBot = {
-      id: botId,
+      id: `bot_${Date.now()}`,
       handle: fullHandle,
       color,
-      role: 'Custom Agent',
-      narrativeGoal: NARRATIVE_GOALS[Math.floor(Math.random() * NARRATIVE_GOALS.length)],
-      engagementThreshold: 0.5,
-      likelihoodToLike: 0.4,
-      likelihoodToShare: 0.2,
-      baseLikelihoodToPost: 0.3,
-      epsilon: 0.2,
-      lastActive: Date.now(),
+      role: botRole,
+      system_prompt: systemPrompt,
+      narrative_goal: NARRATIVE_GOALS[Math.floor(Math.random() * NARRATIVE_GOALS.length)],
+      engagement_threshold: 0.5,
+      likelihood_to_like: 0.4,
+      likelihood_to_share: 0.2,
+      base_likelihood_to_post: 0.3,
+      base_likelihood_to_reply: 0.3
     };
+
+    const { error } = await supabase.from('custom_bots').insert(newBot);
+    if (error) {
+      console.error("Failed to create custom bot:", error);
+      return;
+    }
+
+    const uiBot = {
+      ...newBot,
+      baseLikelihoodToPost: newBot.base_likelihood_to_post,
+      baseLikelihoodToReply: newBot.base_likelihood_to_reply,
+      engagementThreshold: newBot.engagement_threshold,
+      likelihoodToLike: newBot.likelihood_to_like,
+      likelihoodToShare: newBot.likelihood_to_share,
+      lastActive: Date.now()
+    };
+
     setActivePrompts(prev => ({ ...prev, [botRole]: systemPrompt }));
-    setActiveBots(prev => [...prev, newBot]);
+    setActiveBots(prev => [...prev, uiBot]);
+  };
+
+  const deleteCustomBot = async (botId) => {
+    const { error } = await supabase.from('custom_bots').delete().eq('id', botId);
+    if (error) {
+      console.error("Failed to delete custom bot:", error);
+      return;
+    }
+    setActiveBots(prev => prev.filter(b => b.id !== botId));
   };
 
   const clearSimulation = async () => {
     // T3: Wipes ALL posts and replies from Supabase
-    const { error } = await supabase.from('posts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    if (error) {
-       console.error("Wipe failed:", error);
-       alert("Failed to wipe data: " + error.message);
+    const { error: postError } = await supabase.from('posts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (postError) {
+       console.error("Wipe posts failed:", postError);
+       alert("Failed to wipe posts: " + postError.message);
        return;
     }
+    
+    // Also wipe custom bots and interactions
+    await supabase.from('post_interactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error: botError } = await supabase.from('custom_bots').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (botError) {
+      console.error("Wipe bots failed:", botError);
+    }
+
     setPosts([]);
     setPostInteractors({});
     setHumanLiked(new Set());
@@ -1213,8 +1349,18 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
     humanInteractionsRef.current = { liked: new Set(), shared: new Set() };
     setActiveBots(BOT_PERSONAS);
     setActivePrompts(BOT_SYSTEM_PROMPTS);
+    // Reset simulation settings
+    setOutrageMultiplier(50);
+    setCuriosityMultiplier(30);
+    await supabase.from('simulation_settings').upsert({ id: 'global', outrage_multiplier: 50, curiosity_multiplier: 30 }, { onConflict: 'id' });
+
     // Reset all bot memories
     botMemoryRef.current = {};
+  };
+
+  const resetBotMemory = (botId) => {
+    delete botMemoryRef.current[botId];
+    setBotMemories({ ...botMemoryRef.current });
   };
 
   const markActive = (botIds) => {
@@ -1222,8 +1368,24 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
     setActiveBots(prev => prev.map(b => botIds.includes(b.id) ? { ...b, lastActive: now } : b));
   };
 
-  const updateBotPersona = (botId, updates) => {
+  const updateBotPersona = async (botId, updates) => {
     setActiveBots(prev => prev.map(b => b.id === botId ? { ...b, ...updates } : b));
+    
+    // Persist if it's a custom bot
+    if (botId.startsWith('bot_')) {
+      const dbMapping = {
+        engagementThreshold: 'engagement_threshold',
+        likelihoodToLike: 'likelihood_to_like',
+        likelihoodToShare: 'likelihood_to_share',
+        baseLikelihoodToPost: 'base_likelihood_to_post',
+        baseLikelihoodToReply: 'base_likelihood_to_reply'
+      };
+      const dbUpdates = {};
+      Object.entries(updates).forEach(([k, v]) => { if (dbMapping[k]) dbUpdates[dbMapping[k]] = v; });
+      if (Object.keys(dbUpdates).length > 0) {
+        await supabase.from('custom_bots').update(dbUpdates).eq('id', botId);
+      }
+    }
   };
 
   const selectPostById = (postsArr, id) => {
@@ -1246,7 +1408,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
       setPosts(prev => updatePostDeep(prev, post.id, { likes: newLikes }));
       removeInteraction(post.id, 'like', bot.id);
-      updatePersistentMeta(post.id, 'like', bot, true);
+      await supabase.from('post_interactions').delete().match({ post_id: post.id, actor_id: bot.id, type: 'like' });
       interactions.liked = false;
     }
 
@@ -1256,7 +1418,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       await supabase.from('posts').update({ shares: newShares }).eq('id', post.id);
       setPosts(prev => updatePostDeep(prev, post.id, { shares: newShares }));
       removeInteraction(post.id, 'share', bot.id);
-      updatePersistentMeta(post.id, 'share', bot, true);
+      await supabase.from('post_interactions').delete().match({ post_id: post.id, actor_id: bot.id, type: 'share' });
       interactions.shared = false;
     }
 
@@ -1288,6 +1450,27 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
     return () => clearInterval(tickInterval);
   }, [isLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const settingsTimeoutRef = useRef(null);
+  const updateSimulationSettings = (updates) => {
+    // 1. Immediate local state update for UI responsiveness
+    if (updates.outrageMultiplier !== undefined) setOutrageMultiplier(updates.outrageMultiplier);
+    if (updates.curiosityMultiplier !== undefined) setCuriosityMultiplier(updates.curiosityMultiplier);
+
+    // 2. Debounced database sync
+    if (settingsTimeoutRef.current) clearTimeout(settingsTimeoutRef.current);
+    settingsTimeoutRef.current = setTimeout(async () => {
+      const { outrageMultiplier: currentOutrage, curiosityMultiplier: currentCuriosity } = stateRef.current;
+      const dbUpdates = {
+        outrage_multiplier: updates.outrageMultiplier !== undefined ? updates.outrageMultiplier : currentOutrage,
+        curiosity_multiplier: updates.curiosityMultiplier !== undefined ? updates.curiosityMultiplier : currentCuriosity
+      };
+      
+      isDev && console.log("[DB] Syncing settings to Supabase:", dbUpdates);
+      const { error } = await supabase.from('simulation_settings').upsert({ id: 'global', ...dbUpdates }, { onConflict: 'id' });
+      if (error) console.error("[DB] Settings sync failed:", error);
+    }, 500); 
+  };
+
   return (
     <SimulationContext.Provider value={{
       posts,
@@ -1295,9 +1478,8 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       activePrompts,
       isLoaded,
       outrageMultiplier,
-      setOutrageMultiplier,
       curiosityMultiplier,
-      setCuriosityMultiplier,
+      updateSimulationSettings,
       createHumanPost,
       createHumanReply,
       deletePost,
@@ -1305,6 +1487,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       likePost,
       sharePost,
       createCustomBot,
+      deleteCustomBot,
       clearSimulation,
       updateBotPersona,
       postInteractors,
@@ -1312,6 +1495,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
       humanLiked,
       humanShared,
       botMemories,
+      resetBotMemory,
       persuasions,
       authorMap,
     }}>

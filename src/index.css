@@ -563,24 +563,25 @@ input[type="range"]::-webkit-slider-thumb {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.95); /* Deep blackout to stop collision */
-  backdrop-filter: blur(12px); /* Increased blur */
+  background: rgba(0, 0, 0, 0.98); /* Near total blackout for mobile/desktop clarity */
+  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: 10001; /* Above mobile nav */
   animation: fadeIn 0.3s ease-out;
 }
 
 .modal-content {
-  background: #000000; /* Solid pitch black to eliminate read-through */
-  border: 1px solid var(--border-bright); /* Brighter border for visibility */
+  background: #000000;
+  border: 1px solid var(--border-bright);
   border-radius: 20px;
-  width: 90%;
-  max-width: 400px;
-  padding: 30px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  width: 92%;
+  max-width: 420px;
+  padding: 32px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.9);
   animation: slideUp 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+  position: relative;
 }
 
 .modal-title {
@@ -713,4 +714,50 @@ input[type="range"]::-webkit-slider-thumb {
 .shimmer-line.header { width: 40%; height: 14px; }
 .shimmer-line.title { width: 70%; }
 .shimmer-line.short { width: 30%; }
+
+/* ── Mobile & Responsive Layout ─────────────────────────────────────────── */
+@media (max-width: 1050px) {
+  .nav-sidebar, .right-sidebar {
+    display: none !important;
+  }
+
+  .main-content {
+    border-right: none;
+    width: 100%;
+    margin-bottom: 65px; /* Space for bottom nav */
+  }
+
+  .mobile-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 65px;
+    background: rgba(0, 0, 0, 0.9);
+    backdrop-filter: blur(15px);
+    border-top: 1px solid var(--border);
+    justify-content: space-around;
+    align-items: center;
+    padding: 0 20px;
+    z-index: 10000;
+  }
+
+  .action-btn {
+    padding: 12px;
+    border-radius: 50%;
+    transition: background 0.2s ease;
+  }
+
+  .action-btn:active {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+@media (min-width: 1051px) {
+  .mobile-nav {
+    display: none !important;
+  }
+}
+
 

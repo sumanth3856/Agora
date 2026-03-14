@@ -137,8 +137,8 @@ describe('SimulationContext AI Engine', () => {
     const mockPrompts = { test_role: 'You are a testing bot' };
 
     it('returns NEUTRAL with 0 confidence if groq is missing', async () => {
-      const result = await evaluateStance(null, mockBot, mockPost, mockPrompts);
-      expect(result).toEqual({ stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' });
+      const result = await evaluateStance(null, mockBot, { text: 'missing groq' }, mockPrompts);
+      expect(result).toEqual({ stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral', reasoning: null });
     });
 
     it('parses structured JSON return from groq', async () => {
@@ -146,17 +146,18 @@ describe('SimulationContext AI Engine', () => {
         chat: {
           completions: {
             create: vi.fn().mockResolvedValue({
-              choices: [{ message: { content: '{"stance":"AGREE","confidence":0.95,"sentiment":"Joy"}' } }]
+              choices: [{ message: { content: '{"stance":"AGREE","confidence":0.95,"sentiment":"Joy", "reasoning": "I agree because tests are good."}' } }]
             })
           }
         }
       };
       
       const result = await evaluateStance(mockGroq, mockBot, mockPost, mockPrompts);
-      expect(result).toEqual({ stance: 'AGREE', confidence: 0.95, sentiment: 'Joy' });
+      expect(result).toEqual({ stance: 'AGREE', confidence: 0.95, sentiment: 'Joy', reasoning: 'I agree because tests are good.' });
     });
 
     it('safely handles malformed json responses from groq', async () => {
+      const malformedPost = { text: 'malformed json test' };
       const mockGroq = {
         chat: {
           completions: {
@@ -168,11 +169,12 @@ describe('SimulationContext AI Engine', () => {
         }
       };
       
-      const result = await evaluateStance(mockGroq, mockBot, mockPost, mockPrompts);
-      expect(result).toEqual({ stance: 'AGREE', confidence: 0.75, sentiment: 'Neutral' });
+      const result = await evaluateStance(mockGroq, mockBot, malformedPost, mockPrompts);
+      expect(result).toEqual({ stance: 'AGREE', confidence: 0.75, sentiment: 'Neutral', reasoning: null });
     });
 
     it('falls back to NEUTRAL on error', async () => {
+      const errorPost = { text: 'error fallback test' };
       const mockGroq = {
         chat: {
           completions: {
@@ -181,8 +183,8 @@ describe('SimulationContext AI Engine', () => {
         }
       };
       
-      const result = await evaluateStance(mockGroq, mockBot, mockPost, mockPrompts);
-      expect(result).toEqual({ stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral' });
+      const result = await evaluateStance(mockGroq, mockBot, errorPost, mockPrompts);
+      expect(result).toEqual({ stance: 'NEUTRAL', confidence: 0, sentiment: 'Neutral', reasoning: null });
     });
   });
 

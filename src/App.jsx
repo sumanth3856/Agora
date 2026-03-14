@@ -16,127 +16,39 @@ const getRelativeTime = (timestamp) => {
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-// ─── Task 7: ML-Enhanced Trending Topics (Dynamic LLM Clustering) ────────────
 const useTrendingTopics = (posts, groqInstance) => {
   const [topics, setTopics] = useState([]);
-  
-  // Calculate raw topics from local heuristics
   const computedRawWords = useMemo(() => {
-    if (!posts || posts.length === 0) return [];
-
-    const STOP_WORDS = new Set([
-      'the', 'is', 'at', 'which', 'on', 'and', 'a', 'to', 'in', 'of', 'it',
-      'for', 'that', 'with', 'as', 'are', 'this', 'was', 'but', 'not', 'have',
-      'from', 'they', 'we', 'you', 'i', 'an', 'be', 'by', 'or', 'what', 'so',
-      'can', 'if', 'about', 'just', 'like', 'my', 'your', 'all', 'do', 'out',
-      'up', 'how', 'when', 'there', 'who', 'why', 'their', 'has', 'would',
-      'will', 'no', 'make', 'more', 'than', 'very', 'its', 'also',
-      'need', 'some', 'these', 'them', 'been', 'had', 'were', 'said', 'each',
-      'most', 'other', 'into', 'over', 'then', 'time', 'people', 'think',
-      'know', 'really', 'only', 'even', 'those', 'such', 'much', 'should',
-      'because', 'now', 'get', 'got', 'let', 'every', 'right', 'want',
-      'going', 'actually', 'still', 'always', 'never', 'same', 'way', 'take',
-      'youre', 'cant', 'dont', 'wont', 'isnt', 'arent', 'wasnt', 'werent',
-      'hasnt', 'havent', 'hadnt', 'doesnt', 'didnt', 'wouldnt', 'shouldnt',
-      'couldnt', 'mustnt', 'thats', 'theres', 'heres', 'whats', 'weve',
-      'theyre', 'theyll', 'theyd', 'itll', 'itd', 'ive', 'youd', 'youll',
-      'youve', 'hes', 'shes', 'shed', 'hed', 'hell', 'ill', 'lets', 'whos',
-    ]);
-
+    if (!posts?.length) return [];
+    const STOP = new Set(['the', 'is', 'at', 'which', 'on', 'and', 'for', 'that', 'with', 'are', 'this', 'was', 'but', 'not', 'have', 'from', 'they', 'what', 'their', 'has', 'would', 'will', 'make', 'more', 'than', 'some', 'these', 'them', 'been', 'had', 'were', 'said', 'each', 'most', 'other', 'into', 'over', 'then', 'time', 'people', 'think', 'know', 'really', 'only', 'even', 'those', 'such', 'much', 'should', 'because']);
     const now = Date.now();
-    const ONE_HOUR = 3600 * 1000;
-
-    const flattenAll = (arr) => arr.reduce((acc, p) => {
-      const engagement = (p.likes || 0) + (p.shares || 0) + (p.replies?.length || 0);
-      return [...acc, { ...p, engagement }, ...flattenAll(p.replies || [])];
-    }, []);
-
-    const allPosts = flattenAll(posts);
-
-    const wordScores = {};
-    const wordEngagement = {};
-
-    allPosts.forEach(post => {
-      if (!post.text) return;
-      const ageHours = (now - post.timestamp) / ONE_HOUR;
-      const recencyWeight = Math.max(0.3, 1 / (1 + ageHours * 0.1));
-      const engagementBoost = 1 + Math.log1p(post.engagement || 0);
-
-      const tokens = post.text
-        .toLowerCase()
-        .replace(/[''`]/g, '')
-        .replace(/[.,/#!$%^&*;:{}=\-_~()"]/g, '')
-        .split(/\s+/)
-        .filter(w => w.length > 3 && !STOP_WORDS.has(w) && /^[a-z]+$/.test(w));
-
-      tokens.forEach(word => {
-        const score = recencyWeight * engagementBoost;
-        wordScores[word] = (wordScores[word] || 0) + score;
-        wordEngagement[word] = (wordEngagement[word] || 0) + (post.engagement || 0);
-      });
-
+    const scores = {}, engs = {};
+    const flatten = (arr) => arr.reduce((acc, p) => [...acc, { ...p, eng: (p.likes || 0) + (p.shares || 0) + (p.replies?.length || 0) }, ...flatten(p.replies || [])], []);
+    
+    flatten(posts).forEach(p => {
+      const weight = Math.max(0.3, 1 / (1 + (now - p.timestamp) / 3600000 * 0.1)) * (1 + Math.log1p(p.eng || 0));
+      const tokens = (p.text || '').toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_~()"]/g, '').split(/\s+/).filter(w => w.length > 3 && !STOP.has(w));
+      tokens.forEach(w => { scores[w] = (scores[w] || 0) + weight; engs[w] = (engs[w] || 0) + (p.eng || 0); });
       for (let i = 0; i < tokens.length - 1; i++) {
-        const bigram = `${tokens[i]} ${tokens[i + 1]}`;
-        if (!STOP_WORDS.has(tokens[i]) && !STOP_WORDS.has(tokens[i + 1])) {
-          const score = recencyWeight * engagementBoost * 1.5;
-          wordScores[bigram] = (wordScores[bigram] || 0) + score;
-          wordEngagement[bigram] = (wordEngagement[bigram] || 0) + (post.engagement || 0);
-        }
+        const bg = `${tokens[i]} ${tokens[i+1]}`;
+        scores[bg] = (scores[bg] || 0) + weight * 1.5; engs[bg] = (engs[bg] || 0) + (p.eng || 0);
       }
     });
 
-    const topWords = Object.keys(wordScores)
-      .map(word => ({ word, score: wordScores[word], interactions: wordEngagement[word] }))
-      .sort((a, b) => b.score - a.score)
-      // T4: Filter out single common nouns that are too generic/short for trends
-      .filter(({ word }) => {
-        const GENERIC_SINGLES = new Set([
-          'human', 'people', 'world', 'global', 'society', 'future', 'system',
-          'change', 'issue', 'problem', 'country', 'nation', 'government',
-          'money', 'power', 'years', 'market', 'growth', 'point', 'place',
-          'fact', 'idea', 'thing', 'ways', 'good', 'better', 'worse', 'less',
-          'many', 'every', 'long', 'real', 'true', 'keep', 'work', 'used',
-          'being', 'doing', 'seen', 'made', 'come', 'across', 'between',
-        ]);
-        // Allow bigrams (phrases) through, only filter single-word generics
-        if (!word.includes(' ') && GENERIC_SINGLES.has(word)) return false;
-        // Must be at least 5 chars for single words
-        if (!word.includes(' ') && word.length < 5) return false;
-        return true;
-      })
+    return Object.keys(scores).map(w => ({ word: w, score: scores[w], interactions: engs[w] }))
+      .sort((a,b) => b.score - a.score)
+      .filter(({word}) => word.includes(' ') || (word.length >= 5 && !['human', 'people', 'world', 'global', 'system'].includes(word)))
       .slice(0, 15);
-
-    return topWords;
   }, [posts]);
 
   useEffect(() => {
-    if (computedRawWords.length === 0) return;
-
-    // Fast-path visual render with fallback text
-    setTopics(computedRawWords.slice(0, 5).map(tw => ({
-      word: tw.word.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-      interactions: tw.interactions,
-      category: 'Analyzing...'
-    })));
-
-    // Asynchronously cluster with LLM API — re-run every 30 secs to save tokens
-    let isMounted = true;
-    import('./SimulationContext').then(({ clusterTopicsWithLLM }) => {
-      clusterTopicsWithLLM(groqInstance, computedRawWords.map(tw => tw.word)).then(clusters => {
-        if (!isMounted) return;
-        const newTopics = clusters.map(topicName => {
-          const matchedRawWord = computedRawWords.find(tw => topicName.toLowerCase().includes(tw.word.toLowerCase())) || computedRawWords[0];
-          return {
-            word: topicName,
-            interactions: matchedRawWord?.interactions || 0,
-            category: 'Dynamic Trend'
-          };
-        });
-        setTopics(newTopics.slice(0, 5));
-      });
-    });
-
-    return () => { isMounted = false; };
+    if (!computedRawWords.length) return;
+    setTopics(computedRawWords.slice(0, 5).map(tw => ({ word: tw.word.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), interactions: tw.interactions, category: 'Analyzing...' })));
+    let mounted = true;
+    import('./SimulationContext').then(({ clusterTopicsWithLLM }) => clusterTopicsWithLLM(groqInstance, computedRawWords.map(tw => tw.word)).then(clusters => {
+      if (mounted) setTopics(clusters.map(name => ({ word: name, interactions: computedRawWords.find(tw => name.toLowerCase().includes(tw.word.toLowerCase()))?.interactions || 0, category: 'Trend' })).slice(0, 5));
+    }));
+    return () => { mounted = false; };
   }, [computedRawWords, groqInstance, Math.floor(Date.now() / 300000)]);
 
   return topics;
@@ -174,7 +86,7 @@ const TypingIndicator = memo(({ handle, color }) => (
       width: '22px', height: '22px', borderRadius: '50%', 
       backgroundColor: color, display: 'flex', alignItems: 'center', 
       justifyContent: 'center', color: '#000', fontWeight: 800, fontSize: '0.6rem',
-      boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)', flexShrink: 0
+      boxShadow: 'inset 0 0 0 1px rgba(0, 0, 0, 0.16)', flexShrink: 0
     }}>
       {handle.substring(1, 2).toUpperCase()}
     </div>
@@ -198,22 +110,26 @@ const ShimmerPost = memo(() => (
   </div>
 ));
 
-// ─── UIModal Component ────────────────────────────────────────────────────────
-const UIModal = ({ isOpen, onClose, title, description, onConfirm, confirmText = 'Confirm', cancelText = 'Cancel', variant = 'default' }) => {
-  if (!isOpen) return null;
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <h2 className="modal-title">{title}</h2>
-        <p className="modal-description">{description}</p>
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={onClose}>{cancelText}</button>
-          <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
-        </div>
+const ICON = {
+  home: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>,
+  homeExtra: <polyline points="9 22 9 12 15 12 15 22"></polyline>,
+  network: <><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></>,
+  lab: <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.77 3.77z"></path>,
+  settings: <><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></>
+};
+
+const UIModal = ({ isOpen, onClose, title, description, onConfirm, confirmText = 'Confirm', variant = 'default' }) => isOpen && (
+  <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <h2 className="modal-title">{title}</h2>
+      <p className="modal-description">{description}</p>
+      <div className="modal-actions">
+        <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
+        <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
       </div>
     </div>
-  );
-};
+  </div>
+);
 
 // ─── SocialPost Component ─────────────────────────────────────────────────────
 // showThreadLine: if true, draws the vertical thread line below the avatar
@@ -645,9 +561,8 @@ function App() {
     posts,
     isLoaded,
     outrageMultiplier,
-    setOutrageMultiplier,
     curiosityMultiplier,
-    setCuriosityMultiplier,
+    updateSimulationSettings,
     createHumanPost,
     createHumanReply,
     deletePost,
@@ -662,6 +577,8 @@ function App() {
     activeBots,
     humanLiked,
     humanShared,
+    botMemories,
+    resetBotMemory,
     persuasions,
   } = useSimulation();
 
@@ -875,7 +792,7 @@ function App() {
       />
     ));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayedPosts, searchResults, searchQuery, postInteractors, humanLiked, humanShared]);
+  }, [displayedPosts, searchResults, searchQuery, postInteractors, humanLiked, humanShared, isLoaded]);
 
 
   return (
@@ -894,34 +811,15 @@ function App() {
 
           {/* Task 5: nav buttons with uniform padding — active class applied via CSS */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '24px' }}>
-            <button
-              className={`nav-link ${activeTab === 'home' ? 'active' : ''}`}
-              onClick={() => setActiveTab('home')}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === 'home' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-              Home
-            </button>
-            <button
-              className={`nav-link ${activeTab === 'network' ? 'active' : ''}`}
-              onClick={() => setActiveTab('network')}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === 'network' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-              Network
-            </button>
-            <button
-              className={`nav-link ${activeTab === 'lab' ? 'active' : ''}`}
-              onClick={() => setActiveTab('lab')}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === 'lab' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.77 3.77z"></path></svg>
-              Bot Lab
-            </button>
-            <button
-              className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
-              onClick={() => setActiveTab('settings')}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === 'settings' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-              Settings
-            </button>
+            {['home', 'network', 'lab', 'settings'].map(tab => (
+              <button key={tab} className={`nav-link ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === tab ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  {ICON[tab]}
+                  {tab === 'home' && ICON.homeExtra}
+                </svg>
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
           </nav>
           
           <button
@@ -1109,11 +1007,27 @@ function App() {
                     <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: bot.color, flexShrink: 0 }}></div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.handle.substring(1)}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{bot.role}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {bot.role}
+                        {bot.role.startsWith('custom') && (
+                          <span style={{ fontSize: '0.6rem', padding: '1px 4px', borderRadius: '4px', background: 'var(--accent-cyan)', color: '#000', fontWeight: 800 }}>CUSTOM</span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 ))}
               </div>
+              <button 
+                onClick={() => {
+                  const handle = prompt("Enter Bot Handle (e.g., @MyBot):");
+                  const systemPrompt = prompt("Enter System Prompt (Instructions for the AI):");
+                  if (handle && systemPrompt) createCustomBot(handle, `hsl(${Math.random() * 360}, 70%, 60%)`, systemPrompt);
+                }}
+                className="modal-btn modal-btn-confirm" 
+                style={{ width: '100%', marginTop: '16px', fontSize: '0.85rem' }}
+              >
+                + Create New Agent
+              </button>
             </div>
 
             {/* Editor Console */}
@@ -1130,120 +1044,140 @@ function App() {
                   const bot = activeBots.find(b => b.id === selectedBotId);
                   if (!bot) return null;
                   return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} className="animate-entrance">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                         <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: bot.color, boxShadow: `0 0 20px ${bot.color}44` }}></div>
-                         <div>
-                           <h3 style={{ fontSize: '1.4rem', fontWeight: 800 }}>{bot.handle}</h3>
-                           <span className="topic-category" style={{ fontSize: '0.85rem' }}>{bot.role} Module</span>
-                         </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                           <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: bot.color, boxShadow: `0 0 20px ${bot.color}44` }}></div>
+                           <div>
+                             <h3 style={{ fontSize: '1.4rem', fontWeight: 800 }}>{bot.handle}</h3>
+                             <span className="topic-category" style={{ fontSize: '0.85rem' }}>{bot.role.startsWith('custom') ? 'Custom' : bot.role} Module</span>
+                           </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button 
+                            className="modal-btn" 
+                            style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border)', padding: '6px 12px' }}
+                            onClick={() => { if(confirm("Reset this agent's learned cognitive state?")) { resetBotMemory(bot.id); } }}
+                          >
+                            Reset Logic
+                          </button>
+                          {bot.role.startsWith('custom') && (
+                            <button 
+                              className="modal-btn" 
+                              style={{ background: 'var(--accent-rose)', color: 'white', border: 'none', padding: '6px 12px' }}
+                              onClick={() => { if(confirm("Terminate this agent?")) { deleteCustomBot(bot.id); setSelectedBotId(null); } }}
+                            >
+                              Terminate
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      <section>
-                        <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Personality Weights</h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                          <div className="sidebar-card">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                              <label style={{ fontSize: '0.9rem', fontWeight: 700 }}>Engagement Threshold</label>
-                              <span style={{ color: 'var(--accent-cyan)', fontWeight: 800 }}>{Math.round(bot.engagementThreshold * 100)}%</span>
-                            </div>
-                            <input type="range" min="0" max="100" value={bot.engagementThreshold * 100} onChange={e => updateBotPersona(bot.id, { engagementThreshold: Number(e.target.value) / 100 })} style={{ accentColor: 'var(--accent-cyan)' }} />
-                            <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '6px' }}>Minimum confidence needed to interact with a post.</p>
-                          </div>
-                        </div>
-                      </section>
-
-                      <section>
-                         <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Behavioral Predictions</h4>
-                         <div className="sidebar-card" style={{ background: 'rgba(29, 155, 240, 0.03)' }}>
-                           <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                             <li style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>Volatility Index</span>
-                                <span style={{ color: bot.engagementThreshold < 0.3 ? 'var(--accent-rose)' : 'var(--text-primary)', fontWeight: 700 }}>{bot.engagementThreshold < 0.3 ? 'CRITICAL' : 'STABLE'}</span>
-                             </li>
-                             <li style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>Estimated Replies/Hour</span>
-                                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>~{Math.round(bot.baseLikelihoodToPost * 10 + (1 - bot.engagementThreshold) * 20)}</span>
-                             </li>
-                           </ul>
-                         </div>
-                      </section>
-
-                      {/* NEW: Live Research Insight (LTM Display) */}
-                      <section className="animate-entrance" style={{ animationDelay: '0.2s' }}>
-                        <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live Research Insight</h4>
-                        <div className="sidebar-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'rgba(255, 255, 255, 0.02)' }}>
-                          
-                          {/* Emotional state */}
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Latest Cognitive State</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '1.2rem' }}>
-                                {(() => {
-                                  const s = botMemories?.[bot.id]?.lastSentiment || 'Neutral';
-                                  if (s === 'Joy') return '😊';
-                                  if (s === 'Anger') return '😠';
-                                  if (s === 'Fear') return '😨';
-                                  if (s === 'Sadness') return '😢';
-                                  if (s === 'Surprise') return '😲';
-                                  if (s === 'Disgust') return '🤢';
-                                  return '😐';
-                                })()}
-                              </span>
-                              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{botMemories?.[bot.id]?.lastSentiment || 'Calm'}</span>
+                        <section>
+                          <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Personality Weights</h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            <div className="sidebar-card" title="Higher values make the bot more selective and less likely to interact randomly.">
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                <label style={{ fontSize: '0.9rem', fontWeight: 700 }}>Engagement Threshold</label>
+                                <span style={{ color: 'var(--accent-cyan)', fontWeight: 800 }}>{Math.round(bot.engagementThreshold * 100)}%</span>
+                              </div>
+                              <input type="range" min="0" max="100" value={bot.engagementThreshold * 100} onChange={e => updateBotPersona(bot.id, { engagementThreshold: Number(e.target.value) / 100 })} style={{ accentColor: 'var(--accent-cyan)' }} />
+                              <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '6px' }}>Minimum confidence needed to interact with a post.</p>
                             </div>
                           </div>
+                        </section>
 
-                          {/* Social Graph */}
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Social Relationships</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              {Object.entries(botMemories?.[bot.id]?.socialGraph || {}).slice(0, 3).map(([authorId, score]) => {
-                                const targetBot = activeBots.find(b => b.id === authorId) || { handle: '@User', color: '#888' };
-                                return (
-                                  <div key={authorId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: targetBot.color }}></div>
-                                      <span>{targetBot.handle}</span>
-                                    </div>
-                                    <span style={{ color: score > 0 ? 'var(--accent-cyan)' : 'var(--accent-rose)', fontWeight: 800 }}>
-                                      {score > 0 ? `+${Math.round(score * 100)}` : Math.round(score * 100)}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                              {Object.keys(botMemories?.[bot.id]?.socialGraph || {}).length === 0 && (
-                                <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>No established relationships.</div>
-                              )}
-                            </div>
-                          </div>
+                        <section>
+                           <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Behavioral Predictions</h4>
+                           <div className="sidebar-card" style={{ background: 'rgba(29, 155, 240, 0.03)' }}>
+                             <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                               <li style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ color: 'var(--text-secondary)' }}>Volatility Index</span>
+                                  <span style={{ color: bot.engagementThreshold < 0.3 ? 'var(--accent-rose)' : 'var(--text-primary)', fontWeight: 700 }}>{bot.engagementThreshold < 0.3 ? 'CRITICAL' : 'STABLE'}</span>
+                               </li>
+                               <li style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ color: 'var(--text-secondary)' }}>Estimated Replies/Hour</span>
+                                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>~{Math.round(bot.baseLikelihoodToPost * 10 + (1 - bot.engagementThreshold) * 20)}</span>
+                               </li>
+                             </ul>
+                           </div>
+                        </section>
 
-                          {/* Learned Stances */}
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Convergent Beliefs</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                              {(Array.isArray(botMemories?.[bot.id]?.topicStances) ? botMemories[bot.id].topicStances : []).slice(0, 4).map(([topic, stance]) => (
-                                <span key={topic} style={{ 
-                                  fontSize: '0.7rem', padding: '4px 8px', borderRadius: '6px', 
-                                  background: stance === 'AGREE' ? 'rgba(0, 255, 255, 0.1)' : 'rgba(255, 0, 100, 0.1)',
-                                  color: stance === 'AGREE' ? 'var(--accent-cyan)' : 'var(--accent-rose)',
-                                  border: `1px solid ${stance === 'AGREE' ? 'var(--accent-cyan)33' : 'var(--accent-rose)33'}`
-                                }}>
-                                  {topic.slice(0, 15)}...
+                        {/* NEW: Live Research Insight (LTM Display) */}
+                        <section className="animate-entrance" style={{ animationDelay: '0.2s' }}>
+                          <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live Research Insight</h4>
+                          <div className="sidebar-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'rgba(255, 255, 255, 0.02)' }}>
+                            
+                            {/* Emotional state */}
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Latest Cognitive State</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '1.2rem' }}>
+                                  {(() => {
+                                    const s = botMemories?.[bot.id]?.lastSentiment || 'Neutral';
+                                    if (s === 'Joy') return '😊';
+                                    if (s === 'Anger') return '😠';
+                                    if (s === 'Fear') return '😨';
+                                    if (s === 'Sadness') return '😢';
+                                    if (s === 'Surprise') return '😲';
+                                    if (s === 'Disgust') return '🤢';
+                                    return '😐';
+                                  })()}
                                 </span>
-                              ))}
-                              {(botMemories?.[bot.id]?.topicStances || []).length === 0 && (
-                                <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>Evaluating trends...</div>
-                              )}
+                                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{botMemories?.[bot.id]?.lastSentiment || 'Calm'}</span>
+                              </div>
                             </div>
-                          </div>
 
-                        </div>
-                      </section>
-                    </div>
-                  );
-                })()
-              )}
+                            {/* Social Graph */}
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Social Relationships</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {Object.entries(botMemories?.[bot.id]?.socialGraph || {}).slice(0, 3).map(([authorId, score]) => {
+                                  const targetBot = activeBots.find(b => b.id === authorId) || { handle: '@User', color: '#888' };
+                                  return (
+                                    <div key={authorId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: targetBot.color }}></div>
+                                        <span>{targetBot.handle}</span>
+                                      </div>
+                                      <span style={{ color: score > 0 ? 'var(--accent-cyan)' : 'var(--accent-rose)', fontWeight: 800 }}>
+                                        {score > 0 ? `+${Math.round(score * 100)}` : Math.round(score * 100)}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                                {Object.keys(botMemories?.[bot.id]?.socialGraph || {}).length === 0 && (
+                                  <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>No established relationships.</div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Learned Stances */}
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Convergent Beliefs</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {(Array.isArray(botMemories?.[bot.id]?.topicStances) ? botMemories[bot.id].topicStances : []).slice(0, 4).map(([topic, stance]) => (
+                                  <span key={topic} style={{ 
+                                    fontSize: '0.7rem', padding: '4px 8px', borderRadius: '6px', 
+                                    background: stance === 'AGREE' ? 'rgba(0, 255, 255, 0.1)' : 'rgba(255, 0, 100, 0.1)',
+                                    color: stance === 'AGREE' ? 'var(--accent-cyan)' : 'var(--accent-rose)',
+                                    border: `1px solid ${stance === 'AGREE' ? 'var(--accent-cyan)33' : 'var(--accent-rose)33'}`
+                                  }}>
+                                    {topic.slice(0, 15)}...
+                                  </span>
+                                ))}
+                                {(botMemories?.[bot.id]?.topicStances || []).length === 0 && (
+                                  <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>Evaluating trends...</div>
+                                )}
+                              </div>
+                            </div>
+
+                          </div>
+                        </section>
+                      </div>
+                    );
+                  })()
+                )}
             </div>
           </div>
         </main>
@@ -1265,7 +1199,7 @@ function App() {
                   <label style={{ fontSize: '1rem', fontWeight: 700 }}>Outrage Engine</label>
                   <span style={{ color: 'var(--accent-rose)', fontWeight: 800 }}>{outrageMultiplier}%</span>
                 </div>
-                <input type="range" min="0" max="100" value={outrageMultiplier} onChange={e => setOutrageMultiplier(Number(e.target.value))} style={{ accentColor: 'var(--accent-rose)' }} />
+                <input type="range" min="0" max="100" value={outrageMultiplier} onChange={e => updateSimulationSettings({ outrageMultiplier: Number(e.target.value) })} style={{ accentColor: 'var(--accent-rose)' }} />
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '10px' }}>Increases the likelihood of aggressive, polarizing commentary.</p>
               </div>
               
@@ -1274,7 +1208,7 @@ function App() {
                   <label style={{ fontSize: '1rem', fontWeight: 700 }}>Curiosity Engine</label>
                   <span style={{ color: 'var(--accent-cyan)', fontWeight: 800 }}>{curiosityMultiplier}%</span>
                 </div>
-                <input type="range" min="0" max="100" value={curiosityMultiplier} onChange={e => setCuriosityMultiplier(Number(e.target.value))} style={{ accentColor: 'var(--accent-cyan)' }} />
+                <input type="range" min="0" max="100" value={curiosityMultiplier} onChange={e => updateSimulationSettings({ curiosityMultiplier: Number(e.target.value) })} style={{ accentColor: 'var(--accent-cyan)' }} />
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '10px' }}>Encourages analytical threads and deep-dive inquiries.</p>
               </div>
             </section>
