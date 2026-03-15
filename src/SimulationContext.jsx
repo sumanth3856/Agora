@@ -1160,24 +1160,29 @@ Share a short, highly opinionated post. Be direct and passionate. No hashtags, n
   // ── Human Interaction APIs ──────────────────────────────────────────────────
 
   const likePost = async (postId, authorId) => {
-    // T2: Toggle like — unlike if already liked, like if not
+    // T2: Toggle like — optimistic update to prevent race conditions
     const alreadyLiked = humanInteractionsRef.current.liked.has(postId);
+    
+    if (alreadyLiked) {
+      humanInteractionsRef.current.liked.delete(postId);
+    } else {
+      humanInteractionsRef.current.liked.add(postId);
+    }
+    setHumanLiked(new Set(humanInteractionsRef.current.liked));
+
     const { data: postData } = await supabase.from('posts').select('likes').eq('id', postId).maybeSingle();
-    if (!postData) return; // Post might have been deleted
+    if (!postData) return;
+
     if (alreadyLiked) {
       // Unlike
-      humanInteractionsRef.current.liked.delete(postId);
-      setHumanLiked(new Set(humanInteractionsRef.current.liked));
-      const newLikes = Math.max(0, (data?.likes || 0) - 1);
+      const newLikes = Math.max(0, (postData?.likes || 0) - 1);
       await supabase.from('posts').update({ likes: newLikes }).eq('id', postId);
       setPosts(prev => updatePostDeep(prev, postId, { likes: newLikes }));
       removeInteraction(postId, 'like', USER_PERSONA.id);
       await supabase.from('post_interactions').delete().match({ post_id: postId, actor_id: USER_PERSONA.id, type: 'like' });
     } else {
       // Like
-      humanInteractionsRef.current.liked.add(postId);
-      setHumanLiked(new Set(humanInteractionsRef.current.liked));
-      const newLikes = (data?.likes || 0) + 1;
+      const newLikes = (postData?.likes || 0) + 1;
       await supabase.from('posts').update({ likes: newLikes }).eq('id', postId);
       setPosts(prev => updatePostDeep(prev, postId, { likes: newLikes }));
       recordInteraction(postId, 'like', USER_PERSONA);
@@ -1187,24 +1192,29 @@ Share a short, highly opinionated post. Be direct and passionate. No hashtags, n
   };
 
   const sharePost = async (postId, authorId) => {
-    // T2: Toggle share — unshare if already shared
+    // T2: Toggle share — optimistic update
     const alreadyShared = humanInteractionsRef.current.shared.has(postId);
+    
+    if (alreadyShared) {
+      humanInteractionsRef.current.shared.delete(postId);
+    } else {
+      humanInteractionsRef.current.shared.add(postId);
+    }
+    setHumanShared(new Set(humanInteractionsRef.current.shared));
+
     const { data: postData } = await supabase.from('posts').select('shares').eq('id', postId).maybeSingle();
     if (!postData) return;
+
     if (alreadyShared) {
       // Unshare
-      humanInteractionsRef.current.shared.delete(postId);
-      setHumanShared(new Set(humanInteractionsRef.current.shared));
-      const newShares = Math.max(0, (data?.shares || 0) - 1);
+      const newShares = Math.max(0, (postData?.shares || 0) - 1);
       await supabase.from('posts').update({ shares: newShares }).eq('id', postId);
       setPosts(prev => updatePostDeep(prev, postId, { shares: newShares }));
       removeInteraction(postId, 'share', USER_PERSONA.id);
       await supabase.from('post_interactions').delete().match({ post_id: postId, actor_id: USER_PERSONA.id, type: 'share' });
     } else {
       // Share
-      humanInteractionsRef.current.shared.add(postId);
-      setHumanShared(new Set(humanInteractionsRef.current.shared));
-      const newShares = (data?.shares || 0) + 1;
+      const newShares = (postData?.shares || 0) + 1;
       await supabase.from('posts').update({ shares: newShares }).eq('id', postId);
       setPosts(prev => updatePostDeep(prev, postId, { shares: newShares }));
       recordInteraction(postId, 'share', USER_PERSONA);

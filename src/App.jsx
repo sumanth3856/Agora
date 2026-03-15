@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback, memo } from 'react'
+import { createPortal } from 'react-dom'
 import { useSimulation, groq } from './SimulationContext'
 import ForceGraph from './ForceGraph'
 import './index.css'
@@ -118,24 +119,40 @@ const ICON = {
   settings: <><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></>
 };
 
-const UIModal = ({ isOpen, onClose, title, description, onConfirm, confirmText = 'Confirm', variant = 'default', children, showActions = true }) => isOpen && (
-  <div className="modal-overlay" onClick={onClose}>
-    <div className="modal-content" onClick={e => e.stopPropagation()}>
-      <button className="modal-close-btn" onClick={onClose} aria-label="Close">✕</button>
-      {title && <h2 className="modal-title">{title}</h2>}
-      {description && <p className="modal-description">{description}</p>}
-      
-      {children}
+const UIModal = ({ isOpen, onClose, title, description, onConfirm, confirmText = 'Confirm', variant = 'default', children, showActions = true }) => {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('modal-open');
+    } else {
+      document.body.classList.remove('modal-open');
+    }
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, [isOpen]);
 
-      {showActions && (
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
-          <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
-        </div>
-      )}
-    </div>
-  </div>
-);
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <button className="modal-close-btn" onClick={onClose} aria-label="Close">✕</button>
+        {title && <h2 className="modal-title">{title}</h2>}
+        {description && <p className="modal-description">{description}</p>}
+        
+        {children}
+
+        {showActions && (
+          <div className="modal-actions">
+            <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
+            <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+};
 
 // ─── SocialPost Component ─────────────────────────────────────────────────────
 // showThreadLine: if true, draws the vertical thread line below the avatar
@@ -206,7 +223,9 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
     );
   };
 
-  const isHumanLiked = humanLiked?.has(post.id);
+  /* T2: Fresh reference for isHumanLiked on every render to ensure re-render */
+  const isHumanLiked = useMemo(() => humanLiked?.has(post.id), [humanLiked, post.id]);
+  const isHumanShared = useMemo(() => humanShared?.has(post.id), [humanShared, post.id]);
 
   return (
     <div className="post-card animate-entrance">
@@ -255,6 +274,7 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
           <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '1rem' }}>
             {isOwn ? 'Me' : post.author.handle.substring(1)}
           </span>
+          {!isOwn && <span className="agent-badge">Agent</span>}
           <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{post.author.handle}</span>
           <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>·</span>
           <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{getRelativeTime(post.timestamp)}</span>
@@ -264,18 +284,18 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
             {isOwn && (
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
                 <button 
-                  onClick={() => { setEditText(post.text); setIsEditing(!isEditing); }} 
-                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '5px' }}
-                  title="Edit Post"
+                   onClick={() => { setEditText(post.text); setIsEditing(!isEditing); }} 
+                   style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '5px' }}
+                   title="Edit Post"
                 >
-                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
                 </button>
                 <button 
-                  onClick={(e) => { e.stopPropagation(); setShowDeleteModal(true); }} 
-                  style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', opacity: 0.8, cursor: 'pointer', padding: '5px' }}
-                  title="Delete Post"
+                   onClick={(e) => { e.stopPropagation(); setShowDeleteModal(true); }} 
+                   style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', opacity: 0.8, cursor: 'pointer', padding: '5px' }}
+                   title="Delete Post"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                 </button>
               </div>
             )}
@@ -291,6 +311,13 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
           confirmText="Delete"
           variant="danger"
         />
+
+        {/* Internal Monologue (Reasoning Block) — only for Bots */}
+        {!isOwn && post.thought && (
+          <div className="reasoning-block">
+            {post.thought}
+          </div>
+        )}
 
         {/* Post Text / Edit Field */}
         {isEditing ? (
@@ -321,27 +348,27 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
         )}
 
         {/* Action Bar */}
-        <div style={{ display: 'flex', gap: '28px', marginTop: '8px' }}>
+        <div style={{ display: 'flex', gap: '32px', marginTop: '12px', marginBottom: '4px' }}>
           <button className={`action-btn reply${showReplyBox ? ' active-reply' : ''}`} onClick={handleReplyOpen} title="Reply">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill={showReplyBox ? 'rgba(29,155,240,0.15)' : 'none'} stroke={showReplyBox ? 'var(--accent-cyan)' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={showReplyBox ? 'rgba(29,155,240,0.15)' : 'none'} stroke={showReplyBox ? 'var(--accent-cyan)' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
             </svg>
-            <span style={{ fontSize: '0.9rem', minWidth: '16px', color: showReplyBox ? 'var(--accent-cyan)' : 'inherit' }}>{post.replies?.length > 0 ? post.replies.length : ''}</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: showReplyBox ? 'var(--accent-cyan)' : 'inherit' }}>{post.replies?.length > 0 ? post.replies.length : ''}</span>
           </button>
 
-          <button className="action-btn share" onClick={(e) => { e.stopPropagation(); sharePost(post.id, post.author.id); }} style={{ opacity: humanShared?.has(post.id) ? 0.6 : 1, cursor: humanShared?.has(post.id) ? 'default' : 'pointer' }} title={humanShared?.has(post.id) ? 'Reposted' : 'Repost'}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill={humanShared?.has(post.id) ? 'var(--accent-cyan)' : 'none'} stroke={humanShared?.has(post.id) ? 'var(--accent-cyan)' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <button className={`action-btn share ${isHumanShared ? 'shared' : ''}`} onClick={(e) => { e.stopPropagation(); sharePost(post.id, post.author.id); }} style={{ opacity: isHumanShared ? 0.7 : 1 }} title={isHumanShared ? 'Reposted' : 'Repost'}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={isHumanShared ? 'var(--accent-cyan)' : 'none'} stroke={isHumanShared ? 'var(--accent-cyan)' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
               <path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
             </svg>
-            <span style={{ fontSize: '0.9rem', minWidth: '16px' }}>{post.shares > 0 ? post.shares : ''}</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: isHumanShared ? 'var(--accent-cyan)' : 'inherit' }}>{post.shares > 0 ? post.shares : ''}</span>
           </button>
 
-          <button className="action-btn like" onClick={(e) => { e.stopPropagation(); likePost(post.id, post.author.id); }} title={isHumanLiked ? 'Unlike' : 'Like'}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill={isHumanLiked ? 'var(--accent-rose)' : 'none'} stroke={isHumanLiked ? 'var(--accent-rose)' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <button className={`action-btn like ${isHumanLiked ? 'liked' : ''}`} onClick={(e) => { e.stopPropagation(); likePost(post.id, post.author.id); }} title={isHumanLiked ? 'Unlike' : 'Like'}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={isHumanLiked ? 'var(--accent-rose)' : 'none'} stroke={isHumanLiked ? 'var(--accent-rose)' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
             </svg>
-            <span style={{ fontSize: '0.9rem', minWidth: '16px', color: isHumanLiked ? 'var(--accent-rose)' : 'inherit' }}>{post.likes > 0 ? post.likes : ''}</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: isHumanLiked ? 'var(--accent-rose)' : 'inherit' }}>{post.likes > 0 ? post.likes : ''}</span>
           </button>
         </div>
 
@@ -374,28 +401,34 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
 
         {/* Interaction Attribution (Detailed) */}
         {hasInteractors && (
-          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '6px', animation: 'fadeIn 0.4s ease-out' }}>
+          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '8px', animation: 'fadeIn 0.4s ease-out' }}>
             {interactors?.likes?.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: 'var(--accent-rose)', filter: 'grayscale(1)', fontSize: '0.8rem' }}>❤️</span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: '1.4' }}>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatActors(interactors.likes)}</span> liked this
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(249, 24, 128, 0.1)', borderRadius: '50%' }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="var(--accent-rose)" stroke="var(--accent-rose)" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                </div>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500 }}>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{formatActors(interactors.likes)}</span> liked this
                 </span>
               </div>
             )}
             {interactors?.shares?.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: 'var(--accent-cyan)', filter: 'grayscale(1)', fontSize: '0.8rem' }}>🔁</span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: '1.4' }}>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatActors(interactors.shares)}</span> shared this
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(29, 155, 240, 0.1)', borderRadius: '50%' }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="3"><path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+                </div>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500 }}>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{formatActors(interactors.shares)}</span> shared this
                 </span>
               </div>
             )}
             {interactors?.replies?.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>💬</span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: '1.4' }}>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatActors(interactors.replies)}</span> replied
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-hover)', borderRadius: '50%' }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="3"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                </div>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500 }}>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{formatActors(interactors.replies)}</span> replied
                 </span>
               </div>
             )}
@@ -576,6 +609,7 @@ function App() {
     likePost: contextLikePost,
     sharePost: contextSharePost,
     createCustomBot,
+    deleteCustomBot,
     clearSimulation,
     updateBotPersona,
     postInteractors,
@@ -604,6 +638,7 @@ function App() {
   const [newBotColor, setNewBotColor] = useState('#1d9bf0');
   const [newBotPrompt, setNewBotPrompt] = useState('');
   
+  const [showDiscoveryOverlay, setShowDiscoveryOverlay] = useState(false);
   const [selectedBotId, setSelectedBotId] = useState(null);
   const [timeMachineValue, setTimeMachineValue] = useState(100);
 
@@ -812,22 +847,22 @@ function App() {
         {/* Left Navigation Sidebar */}
         <aside className="nav-sidebar">
           {/* Logo & Brand Name */}
-          <div style={{ padding: '8px 8px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-primary)', flexShrink: 0 }}>
+          <div className="brand-container">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent-cyan)', flexShrink: 0 }}>
               <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
             </svg>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.03em' }}>StanceBot</h1>
+            <h1 className="brand-name">StanceBot</h1>
           </div>
 
           {/* Task 5: nav buttons with uniform padding — active class applied via CSS */}
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '24px' }}>
+          <nav className="nav-group">
             {['home', 'network', 'lab', 'settings'].map(tab => (
               <button key={tab} className={`nav-link ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === tab ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   {ICON[tab]}
                   {tab === 'home' && ICON.homeExtra}
                 </svg>
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                <span>{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
               </button>
             ))}
           </nav>
@@ -912,36 +947,36 @@ function App() {
         {/* Network Graph Tab */}
         <main className="main-feed" style={{ display: activeTab === 'network' ? 'flex' : 'none', position: 'relative', overflow: 'hidden' }}>
           <header className="feed-header" style={{ justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Network Pulse</h2>
               <button 
                 onClick={() => setShowInfluenceModal(true)}
-                className="action-btn"
-                style={{ fontSize: '0.8rem', background: 'rgba(29, 155, 240, 0.1)', color: 'var(--accent-cyan)', border: '1px solid rgba(29,155,240,0.2)' }}
+                className="analytics-trigger"
               >
-                📊 Influence Analytics
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                <span className="desktop-only">Influence Analytics</span>
               </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Sentiment Heatmap</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="desktop-only" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Heatmap</span>
               <button 
                 onClick={() => setHeatmapMode(m => !m)}
                 style={{ 
-                  width: '40px', height: '20px', borderRadius: '10px', 
+                  width: '36px', height: '18px', borderRadius: '9px', 
                   backgroundColor: heatmapMode ? 'var(--accent-cyan)' : 'var(--border)', 
                   position: 'relative', border: 'none', cursor: 'pointer', transition: 'background 0.2s'
                 }}
               >
                 <div style={{ 
-                  width: '16px', height: '16px', borderRadius: '50%', backgroundColor: '#fff', 
-                  position: 'absolute', top: '2px', left: heatmapMode ? '22px' : '2px', transition: 'left 0.2s'
+                  width: '14px', height: '14px', borderRadius: '50%', backgroundColor: '#fff', 
+                  position: 'absolute', top: '2px', left: heatmapMode ? '20px' : '2px', transition: 'left 0.2s'
                 }}></div>
               </button>
             </div>
           </header>
 
-          <div style={{ padding: '8px 16px', background: 'rgba(29, 155, 240, 0.05)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>🕒 Time Machine</span>
+          <div className="time-machine-bar">
+            <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>🕒</span>
             <input 
               type="range" min="0" max="100" value={timeMachineValue} 
               onChange={e => setTimeMachineValue(Number(e.target.value))}
@@ -994,50 +1029,73 @@ function App() {
 
         {/* Bot Lab Tab */}
         <main className="main-feed" style={{ display: activeTab === 'lab' ? 'flex' : 'none', borderRight: 'none' }}>
-          <header className="feed-header">
+          <header className="feed-header" style={{ gap: '12px', justifyContent: 'flex-start' }}>
+            {selectedBotId && (
+              <button 
+                className="action-btn" 
+                onClick={() => setSelectedBotId(null)} 
+                style={{ padding: '8px', marginLeft: '-8px' }}
+                title="Back to Agent List"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              </button>
+            )}
             <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Agent Research & Development</h2>
           </header>
 
           <div style={{ padding: '24px', display: 'flex', gap: '24px', maxWidth: '900px', margin: '0 auto', width: '100%', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
             {/* Bot List */}
-            <div style={{ width: '280px', borderRight: '1px solid var(--border)', paddingRight: '20px', overflowY: 'auto' }}>
+            <div className={selectedBotId ? 'hide-on-select' : ''} style={{ width: '280px', borderRight: '1px solid var(--border)', paddingRight: '20px', overflowY: 'auto' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px', color: 'var(--text-secondary)' }}>Live Nodes</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {activeBots.map(bot => (
-                  <button 
-                    key={bot.id}
-                    onClick={() => setSelectedBotId(bot.id)}
-                    style={{ 
-                      display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '12px', 
-                      background: selectedBotId === bot.id ? 'var(--surface-hover)' : 'transparent',
-                      border: selectedBotId === bot.id ? '1px solid var(--accent-cyan)' : '1px solid transparent',
-                      cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.2s'
-                    }}
-                  >
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: bot.color, flexShrink: 0 }}></div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.handle.substring(1)}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {bot.role}
-                        {bot.role.startsWith('custom') && (
-                          <span style={{ fontSize: '0.6rem', padding: '1px 4px', borderRadius: '4px', background: 'var(--accent-cyan)', color: '#000', fontWeight: 800 }}>CUSTOM</span>
-                        )}
+                  <div key={bot.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button 
+                      onClick={() => setSelectedBotId(bot.id)}
+                      style={{ 
+                        display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '12px', 
+                        background: selectedBotId === bot.id ? 'var(--surface-hover)' : 'transparent',
+                        border: selectedBotId === bot.id ? '1px solid var(--accent-cyan)' : '1px solid transparent',
+                        cursor: 'pointer', textAlign: 'left', flex: 1, transition: 'all 0.2s', minWidth: 0
+                      }}
+                    >
+                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: bot.color, flexShrink: 0 }}></div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.handle.substring(1)}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {bot.role}
+                        </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                    {bot.role.startsWith('custom') && (
+                      <button 
+                        className="bot-delete-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedBotId(bot.id);
+                          setShowTerminateBotModal(true);
+                        }}
+                        title="Terminate Agent"
+                      >
+                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
-              <button 
-                onClick={() => {
-                  setNewBotHandle('');
-                  setNewBotPrompt('');
-                  setShowCreateBotModal(true);
-                }}
-                className="modal-btn modal-btn-confirm" 
-                style={{ width: '100%', marginTop: '16px', fontSize: '0.85rem' }}
-              >
-                + Create New Agent
-              </button>
+              <div style={{ marginTop: '20px' }}>
+                <button 
+                  onClick={() => {
+                    setNewBotHandle('');
+                    setNewBotPrompt('');
+                    setShowCreateBotModal(true);
+                  }}
+                  className="modal-btn modal-btn-confirm" 
+                  style={{ width: '100%', fontSize: '0.85rem' }}
+                >
+                  + Create New Agent
+                </button>
+              </div>
             </div>
 
             {/* Editor Console */}
@@ -1198,19 +1256,18 @@ function App() {
             <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>System Settings</h2>
           </header>
           
-          <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '560px', margin: '0 auto', width: '100%' }}>
+          <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '560px', margin: '0 auto', width: '100%', overflowY: 'auto' }}>
             
             <section>
               <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '6px' }}>Network Algorithms</h3>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '0.9rem' }}>Tune the deep learning modifiers shaping the flow of information across the network.</p>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '0.9rem' }}>Tune the deep learning modifiers shaping the flow of information.</p>
               
               <div className="sidebar-card" style={{ marginBottom: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
                   <label style={{ fontSize: '1rem', fontWeight: 700 }}>Outrage Engine</label>
                   <span style={{ color: 'var(--accent-rose)', fontWeight: 800 }}>{outrageMultiplier}%</span>
                 </div>
-                <input type="range" min="0" max="100" value={outrageMultiplier} onChange={e => updateSimulationSettings({ outrageMultiplier: Number(e.target.value) })} style={{ accentColor: 'var(--accent-rose)' }} />
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '10px' }}>Increases the likelihood of aggressive, polarizing commentary.</p>
+                <input type="range" min="0" max="100" value={outrageMultiplier} onChange={e => updateSimulationSettings({ outrageMultiplier: Number(e.target.value) })} style={{ accentColor: 'var(--accent-rose)', width: '100%' }} />
               </div>
               
               <div className="sidebar-card">
@@ -1218,29 +1275,10 @@ function App() {
                   <label style={{ fontSize: '1rem', fontWeight: 700 }}>Curiosity Engine</label>
                   <span style={{ color: 'var(--accent-cyan)', fontWeight: 800 }}>{curiosityMultiplier}%</span>
                 </div>
-                <input type="range" min="0" max="100" value={curiosityMultiplier} onChange={e => updateSimulationSettings({ curiosityMultiplier: Number(e.target.value) })} style={{ accentColor: 'var(--accent-cyan)' }} />
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '10px' }}>Encourages analytical threads and deep-dive inquiries.</p>
+                <input type="range" min="0" max="100" value={curiosityMultiplier} onChange={e => updateSimulationSettings({ curiosityMultiplier: Number(e.target.value) })} style={{ accentColor: 'var(--accent-cyan)', width: '100%' }} />
               </div>
             </section>
 
-            <section>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '6px' }}>Deploy Agent</h3>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '0.9rem' }}>Summon a new LLM-powered entity to the network.</p>
-              <div className="sidebar-card">
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                  <input type="color" value={newBotColor} onChange={e => setNewBotColor(e.target.value)} style={{ width: '48px', height: '48px', padding: '0', border: 'none', borderRadius: '50%', cursor: 'pointer', background: 'transparent' }} />
-                  <input type="text" placeholder="@handle" value={newBotHandle} onChange={e => setNewBotHandle(e.target.value)} style={{ flex: 1, padding: '12px 16px', border: '1px solid var(--border)', borderRadius: '12px', fontSize: '1rem' }} />
-                </div>
-                <textarea placeholder="Define the agent's core directives, political bias, and communication style..." value={newBotPrompt} onChange={e => setNewBotPrompt(e.target.value)} rows="4" style={{ width: '100%', padding: '16px', border: '1px solid var(--border)', borderRadius: '12px', marginBottom: '16px', fontSize: '1rem' }} />
-                <button
-                  className="btn-primary"
-                  style={{ width: '100%', padding: '14px', fontSize: '1.05rem', backgroundColor: 'var(--text-primary)', color: 'var(--bg-dark)' }}
-                  onClick={() => { if (newBotHandle && newBotPrompt) { createCustomBot(newBotHandle, newBotColor, newBotPrompt); setNewBotHandle(''); setNewBotPrompt(''); setActiveTab('home'); } }}
-                >
-                  Summon Node
-                </button>
-              </div>
-            </section>
 
             <section style={{ borderTop: '1px solid var(--border)', paddingTop: '24px', paddingBottom: '80px' }}>
               <h3 style={{ fontSize: '1.2rem', color: 'var(--accent-danger)', fontWeight: 800, marginBottom: '12px' }}>Danger Zone</h3>
@@ -1421,15 +1459,29 @@ function App() {
 
         {/* Mobile Navigation (Bottom) */}
         <nav className="mobile-nav">
-          <button className="action-btn" onClick={() => setActiveTab('home')} style={{ color: activeTab === 'home' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+          <button className="nav-link-mobile" onClick={() => setActiveTab('home')} style={{ color: activeTab === 'home' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
             <svg width="26" height="26" viewBox="0 0 24 24" fill={activeTab === 'home' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
           </button>
           
-          <button className="action-btn" onClick={() => { setActiveTab('home'); setTimeout(() => document.getElementById('composer-input')?.focus(), 100); }} style={{ color: 'var(--text-primary)' }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          <button className="nav-link-mobile" onClick={() => setActiveTab('network')} style={{ color: activeTab === 'network' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill={activeTab === 'network' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              {ICON.network}
+            </svg>
           </button>
 
-          <button className="action-btn" onClick={() => setActiveTab('settings')} style={{ color: activeTab === 'settings' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+          <button className="nav-link-mobile composer-trigger" onClick={() => { setActiveTab('home'); setTimeout(() => document.getElementById('composer-input')?.focus(), 100); }}>
+            <div style={{ background: 'var(--accent-cyan)', color: 'white', borderRadius: '50%', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(29, 155, 240, 0.4)' }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </div>
+          </button>
+
+          <button className="nav-link-mobile" onClick={() => setActiveTab('lab')} style={{ color: activeTab === 'lab' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill={activeTab === 'lab' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              {ICON.lab}
+            </svg>
+          </button>
+
+          <button className="nav-link-mobile" onClick={() => setActiveTab('settings')} style={{ color: activeTab === 'settings' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
             <svg width="26" height="26" viewBox="0 0 24 24" fill={activeTab === 'settings' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           </button>
         </nav>

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useCallback } from 'react';
+import React, { useMemo, useRef, useCallback, useEffect } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { useSimulation } from './SimulationContext';
 
@@ -88,7 +88,6 @@ const ForceGraph = ({ heatmapMode = false, onNodeClick }) => {
 
   // 3. Premium Node Visuals: Labels & Glow
   const renderNode = useCallback((node, ctx, globalScale) => {
-    // Safety Fallback: Skip if coords are not numbers
     if (typeof node.x !== 'number' || typeof node.y !== 'number' || isNaN(node.x) || isNaN(node.y)) return;
 
     const label = node.name || 'Bot';
@@ -97,38 +96,83 @@ const ForceGraph = ({ heatmapMode = false, onNodeClick }) => {
     const safeVal = Math.max(1, node.val || 5);
     const size = Math.sqrt(safeVal) * 2;
     
-    // Ensure color is 6-char hex for appending
     const baseColor = (node.color || '#ffffff').substring(0, 7);
 
-    // Draw Glow for Active Bots
-    if (node.isGenerating) {
-      const t = Date.now() / 500;
-      const pulse = Math.abs(Math.sin(t)) * 0.5 + 0.5;
+    // 1. Draw influence halo for high-persuasion bots
+    if (node.val > 6) {
+      const t = Date.now() / 1000;
+      const pulse = Math.abs(Math.sin(t)) * 0.4 + 0.6;
+      const gradient = ctx.createRadialGradient(node.x, node.y, size, node.x, node.y, size * (1.5 + pulse * 0.5));
+      gradient.addColorStop(0, baseColor + '44');
+      gradient.addColorStop(1, 'transparent');
+      
       ctx.beginPath();
-      ctx.arc(node.x, node.y, size * (1.2 + pulse * 0.3), 0, 2 * Math.PI, false);
-      ctx.fillStyle = baseColor + '33';
+      ctx.arc(node.x, node.y, size * (2 + pulse), 0, 2 * Math.PI, false);
+      ctx.fillStyle = gradient;
       ctx.fill();
     }
 
-    // Draw Node Circle
+    // 2. Draw sentiment ring
+    if (heatmapMode || node.lastSentiment !== 'Neutral') {
+      const color = sentimentColors[node.lastSentiment] || sentimentColors.Neutral;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, size + 1.5, 0, 2 * Math.PI, false);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2 / safeScale;
+      ctx.stroke();
+    }
+
+    // 3. Draw thinking pulse
+    if (node.isGenerating) {
+      const t = Date.now() / 400;
+      const pulse = Math.abs(Math.sin(t));
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, size * (1.1 + pulse * 0.4), 0, 2 * Math.PI, false);
+      ctx.strokeStyle = baseColor + '88';
+      ctx.setLineDash([2, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 4. Draw Node Circle
     ctx.beginPath();
     ctx.arc(node.x, node.y, size, 0, 2 * Math.PI, false);
-    ctx.fillStyle = heatmapMode ? (sentimentColors[node.lastSentiment] || sentimentColors.Neutral) : baseColor;
+    ctx.fillStyle = baseColor;
     ctx.fill();
 
-    // Draw Label with Glassmorphism Background
-    ctx.font = `bold ${fontSize}px Inter, system-ui`;
-    const textWidth = ctx.measureText(label).width;
-    const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.5);
+    // 5. Draw Label with Glassmorphism Background
+    if (safeScale > 0.5) {
+      ctx.font = `bold ${fontSize}px Inter, system-ui`;
+      const textWidth = ctx.measureText(label).width;
+      const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 1.5);
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - size - bckgDimensions[1] - 2, ...bckgDimensions);
-    
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#fff';
-    ctx.fillText(label, node.x, node.y - size - bckgDimensions[1] / 2 - 2);
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 4;
+      ctx.fillStyle = 'rgba(17, 17, 17, 0.85)';
+      ctx.beginPath();
+      ctx.roundRect(node.x - bckgDimensions[0] / 2, node.y - size - bckgDimensions[1] - 4, bckgDimensions[0], bckgDimensions[1], 4);
+      ctx.fill();
+      
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff';
+      
+      // Retina-sharp rendering
+      const scaleFactor = Math.min(2, window.devicePixelRatio || 1);
+      ctx.fillText(label, node.x, node.y - size - bckgDimensions[1] / 2 - 4);
+      ctx.restore();
+    }
   }, [heatmapMode]);
+
+  // Center on resize
+  useEffect(() => {
+    const handleResize = () => {
+      fgRef.current?.zoomToFit(400, 50);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
     <div style={{ width: '100%', height: '100%', background: '#000' }}>
@@ -139,17 +183,25 @@ const ForceGraph = ({ heatmapMode = false, onNodeClick }) => {
         onNodeClick={node => node && onNodeClick?.(node.id)}
         nodePointerAreaPaint={(node, color, ctx) => {
            ctx.fillStyle = color;
-           const size = Math.sqrt(Math.max(1, node.val || 4)) * 2;
+           const size = Math.sqrt(Math.max(1, node.val || 4)) * 3;
            ctx.beginPath(); ctx.arc(node.x, node.y, size, 0, 2 * Math.PI, false); ctx.fill();
         }}
         nodeRelSize={6}
-        linkDirectionalArrowLength={3.5}
+        linkDirectionalArrowLength={3}
         linkDirectionalArrowRelPos={1}
         linkCurvature={0.25}
         linkColor={getLinkColor}
-        linkWidth={link => 0.5 + Math.min(link.count * 0.5, 4)}
+        linkWidth={link => 0.4 + Math.min(link.count * 0.4, 3)}
+        linkDirectionalParticles={1}
+        linkDirectionalParticleSpeed={d => 0.005 + (d.count * 0.001)}
+        linkDirectionalParticleWidth={link => {
+          const baseWidth = 2;
+          const scale = fgRef.current?.zoom() || 1;
+          return Math.max(0.5, baseWidth / (scale * 0.5 + 0.5));
+        }}
+        linkDirectionalParticleColor={link => interactionColors[link.type]}
         cooldownTicks={100}
-        onEngineStop={() => fgRef.current?.zoomToFit(400)}
+        onEngineStop={() => fgRef.current?.zoomToFit(400, 50)}
         d3AlphaTarget={0}
         d3VelocityDecay={0.4}
       />
