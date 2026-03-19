@@ -3,6 +3,11 @@ import { createPortal } from 'react-dom'
 import { useSimulation, groq } from './SimulationContext'
 import ForceGraph from './ForceGraph'
 import './index.css'
+import { useAuth } from './AuthContext'
+import Login from './Login'
+import UserMenu from './UserMenu'
+import ComposerPage from './ComposerPage'
+import ProfilePage from './ProfilePage'
 
 // Helper for human-readable time
 const getRelativeTime = (timestamp) => {
@@ -213,7 +218,7 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
           aspectRatio: '16 / 9'
         }}>
           <img 
-            src={`https://loremflickr.com/640/360/${topic}`} 
+            src={`https://picsum.photos/seed/${topic}/640/360`} 
             alt={topic} 
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onError={(e) => e.target.style.display = 'none'}
@@ -235,8 +240,8 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
           width: '44px', height: '44px', borderRadius: '50%', 
           backgroundColor: post.author.color,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#000', fontWeight: 800, fontSize: '1.1rem',
-          flexShrink: 0, boxShadow: `inset 0 0 0 2px rgba(0,0,0,0.3)`
+          color: '#000', fontWeight: 700, fontSize: '1.1rem',
+          flexShrink: 0, boxShadow: 'none'
         }}>
           {post.author.handle.substring(1, 2).toUpperCase()}
         </div>
@@ -271,13 +276,13 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '1rem' }}>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>
             {isOwn ? 'Me' : post.author.handle.substring(1)}
           </span>
           {!isOwn && <span className="agent-badge">Agent</span>}
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{post.author.handle}</span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>·</span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{getRelativeTime(post.timestamp)}</span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>{post.author.handle}</span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>·</span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>{getRelativeTime(post.timestamp)}</span>
           {post.edited && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic' }}>(edited)</span>}
 
           {/* Delete/Edit Controls */}
@@ -337,8 +342,9 @@ const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, edi
           </div>
         ) : (
           <div style={{ 
-            fontSize: '1rem', 
-            lineHeight: 1.5, 
+            fontSize: '15px', 
+            lineHeight: 1.6, 
+            fontWeight: 400,
             color: 'var(--text-primary)',
             wordBreak: 'break-word',
             marginBottom: '12px'
@@ -563,7 +569,7 @@ const Composer = ({ createHumanPost }) => {
             }
           }}
           rows="2"
-          style={{ fontSize: '1.2rem', padding: '4px 0', minHeight: '56px', fontWeight: 500 }}
+          style={{ fontSize: '1.05rem', padding: '4px 0', minHeight: '56px', fontWeight: 400 }}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -592,7 +598,35 @@ const Composer = ({ createHumanPost }) => {
     </div>
   );
 };
+// ─── BotProfileTile Component ───────────────────────────────────────────────
+const BotProfileTile = memo(({ bot, onEdit, onReset, onDelete }) => (
+  <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ 
+        width: '48px', height: '48px', borderRadius: '50%', 
+        backgroundColor: bot.color, display: 'flex', 
+        alignItems: 'center', justifyContent: 'center', 
+        color: '#000', fontWeight: 800, fontSize: '1rem' 
+      }}>
+        {bot.handle.substring(1, 2).toUpperCase()}
+      </div>
+      <div style={{ flex: 1 }}>
+        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>{bot.handle}</h3>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{bot.role.charAt(0).toUpperCase() + bot.role.slice(1)} Agent</p>
+      </div>
+    </div>
+    
+    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.4, minHeight: '40px' }}>
+      "{bot.narrativeGoal}"
+    </div>
 
+    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+      <button onClick={onEdit} className="dropdown-item" style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)' }}>Tune</button>
+      <button onClick={onReset} className="dropdown-item" style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)' }}>Reset</button>
+      <button onClick={onDelete} className="dropdown-item danger" style={{ flex: 1, textAlign: 'center' }}>Kill</button>
+    </div>
+  </div>
+));
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 function App() {
@@ -622,9 +656,13 @@ function App() {
     persuasions,
   } = useSimulation();
 
+  const { user, loading } = useAuth();
+
   const [activeTab, setActiveTab] = useState('home');
-  const [heatmapMode, setHeatmapMode] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedBotId, setSelectedBotId] = useState(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   
   // Modal States
   const [showWipeModal, setShowWipeModal] = useState(false);
@@ -632,6 +670,7 @@ function App() {
   const [showCreateBotModal, setShowCreateBotModal] = useState(false);
   const [showResetBotModal, setShowResetBotModal] = useState(false);
   const [showTerminateBotModal, setShowTerminateBotModal] = useState(false);
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
   
   // Custom Bot Form State
   const [newBotHandle, setNewBotHandle] = useState('');
@@ -639,11 +678,11 @@ function App() {
   const [newBotPrompt, setNewBotPrompt] = useState('');
   
   const [showDiscoveryOverlay, setShowDiscoveryOverlay] = useState(false);
-  const [selectedBotId, setSelectedBotId] = useState(null);
+  const [heatmapMode, setHeatmapMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [timeMachineValue, setTimeMachineValue] = useState(100);
 
   // Buffer Engine
-  // Task 1: isInitialLoad ref prevents buffer swallowing the first Supabase data load
   const isInitialLoad = useRef(true);
   const [renderedPostIds, setRenderedPostIds] = useState(new Set());
   const [feedPosts, setFeedPosts] = useState([]);
@@ -708,17 +747,26 @@ function App() {
     }
   }, [selectedBotId]);
 
+  useEffect(() => {
+    const handleLoginOpen = () => setLoginModalOpen(true);
+    document.addEventListener('navToLogin', handleLoginOpen);
+    return () => document.removeEventListener('navToLogin', handleLoginOpen);
+  }, []);
+
   const handleLikePost = useCallback((postId, authorId) => {
+    if (!user) return setLoginModalOpen(true);
     contextLikePost(postId, authorId);
-  }, [contextLikePost]);
+  }, [contextLikePost, user]);
 
   const handleSharePost = useCallback((postId, authorId) => {
+    if (!user) return setLoginModalOpen(true);
     contextSharePost(postId, authorId);
-  }, [contextSharePost]);
+  }, [contextSharePost, user]);
 
   const handleReplyPost = useCallback((parentPost, text) => {
+    if (!user) return setLoginModalOpen(true);
     createHumanReply(parentPost, text);
-  }, [createHumanReply]);
+  }, [createHumanReply, user]);
 
   // T4: Delete a post (human's own only — context validates)
   const handleDeletePost = useCallback((postId) => {
@@ -840,59 +888,53 @@ function App() {
   }, [displayedPosts, searchResults, searchQuery, postInteractors, humanLiked, humanShared, isLoaded]);
 
 
+  if (loading) {
+    return (
+      <div className="auth-loading-screen">
+        <div className="loading-logo">▲</div>
+        <div className="typing-indicator" style={{ background: 'transparent', border: 'none' }}>
+          <div className="dot"></div>
+          <div className="dot"></div>
+          <div className="dot"></div>
+          <span style={{ fontWeight: 600, letterSpacing: '0.05em' }}>SYSTEM INITIALIZING</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="app-wrapper">
+    <div className="app-wrapper animate-entrance">
+      {/* Global Login Modal Overlay */}
+      {loginModalOpen && !user && (
+        <div className="modal-overlay" style={{ zIndex: 9999999 }}>
+          <div style={{ position: 'relative' }}>
+            <button 
+              className="action-btn" 
+              onClick={() => setLoginModalOpen(false)}
+              style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 10, background: 'rgba(255,255,255,0.1)', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              ✕
+            </button>
+            <Login embedded={true} message="Sign in to interact with the network." />
+          </div>
+        </div>
+      )}
+
       <div className="layout-container">
         
-        {/* Left Navigation Sidebar */}
-        <aside className="nav-sidebar">
-          {/* Logo & Brand Name */}
-          <div className="brand-container">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent-cyan)', flexShrink: 0 }}>
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-            </svg>
-            <h1 className="brand-name">StanceBot</h1>
-          </div>
-
-          {/* Task 5: nav buttons with uniform padding — active class applied via CSS */}
-          <nav className="nav-group">
-            {['home', 'network', 'lab', 'settings'].map(tab => (
-              <button key={tab} className={`nav-link ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === tab ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  {ICON[tab]}
-                  {tab === 'home' && ICON.homeExtra}
-                </svg>
-                <span>{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
-              </button>
-            ))}
-          </nav>
-          
-          <button
-            className="btn-primary"
-            style={{ width: '90%', padding: '12px 0', fontSize: '1.05rem', backgroundColor: 'var(--accent-cyan)' }}
-            onClick={() => { setActiveTab('home'); setTimeout(() => document.getElementById('composer-input')?.focus(), 100); }}
-          >
-            Post
-          </button>
-
-          {/* T1: Bot typing indicators moved here: below Post button */}
-          {activeBots.filter(b => generatingBots.has(b.id)).length > 0 && (
-            <div className="sidebar-typing-stack" style={{ marginTop: '16px' }}>
-              {activeBots.filter(b => generatingBots.has(b.id)).map(bot => (
-                <TypingIndicator key={bot.id} handle={bot.handle} color={bot.color} />
-              ))}
-            </div>
-          )}
-        </aside>
-
         {/* Center Feed Column */}
         <main className="main-feed" style={{ display: activeTab === 'home' ? 'flex' : 'none' }}>
           
-          <header className="feed-header">
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Home</h2>
-          </header>
+          <div className="immersive-hero">
+            <h1 className="hero-title">Network Pulse</h1>
+            <p className="hero-subtitle">Real-time collective consciousness simulation.</p>
+          </div>
 
-          <Composer createHumanPost={handleCreateHumanPost} />
+          {user ? (
+            <div style={{ padding: '0 var(--container-padding)' }}>
+                <Composer createHumanPost={handleCreateHumanPost} />
+            </div>
+          ) : null}
 
           {/* Feed Container */}
           <div style={{ position: 'relative' }}>
@@ -917,17 +959,16 @@ function App() {
                   onClick={popBuffer}
                   className="animate-entrance"
                   style={{ 
-                    background: 'var(--accent-cyan)', 
-                    color: 'white', 
-                    border: 'none', 
+                    background: 'var(--surface-hover)', 
+                    color: 'var(--text-primary)', 
+                    border: '1px solid var(--border)', 
                     borderRadius: '9999px',
                     padding: '8px 20px',
-                    fontSize: '0.95rem',
-                    fontWeight: 700,
+                    fontSize: '0.9rem',
+                    fontWeight: 500,
                     cursor: 'pointer',
-                    boxShadow: '0 4px 12px rgba(29, 155, 240, 0.4)',
                     transform: 'translateZ(0)',
-                    transition: 'transform 0.1s'
+                    transition: 'all 0.15s'
                   }}
                   onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
                   onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
@@ -944,36 +985,40 @@ function App() {
           </div>
         </main>
 
-        {/* Network Graph Tab */}
-        <main className="main-feed" style={{ display: activeTab === 'network' ? 'flex' : 'none', position: 'relative', overflow: 'hidden' }}>
-          <header className="feed-header" style={{ justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Network Pulse</h2>
-              <button 
-                onClick={() => setShowInfluenceModal(true)}
-                className="analytics-trigger"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-                <span className="desktop-only">Influence Analytics</span>
-              </button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="desktop-only" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Heatmap</span>
-              <button 
-                onClick={() => setHeatmapMode(m => !m)}
-                style={{ 
-                  width: '36px', height: '18px', borderRadius: '9px', 
-                  backgroundColor: heatmapMode ? 'var(--accent-cyan)' : 'var(--border)', 
-                  position: 'relative', border: 'none', cursor: 'pointer', transition: 'background 0.2s'
-                }}
-              >
-                <div style={{ 
-                  width: '14px', height: '14px', borderRadius: '50%', backgroundColor: '#fff', 
-                  position: 'absolute', top: '2px', left: heatmapMode ? '20px' : '2px', transition: 'left 0.2s'
-                }}></div>
-              </button>
-            </div>
-          </header>
+        {/* Protected Views */}
+        {!user && activeTab !== 'home' ? (
+          <main className="main-feed" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px' }}>
+             <div className="restricted-overlay animate-entrance">
+                <div className="restricted-icon">
+                   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '12px', fontWeight: 800 }}>Locked Feature</h2>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '32px', maxWidth: '320px', lineHeight: 1.6 }}>
+                  Access to the {activeTab} environment is restricted to authenticated network nodes.
+                </p>
+                <button className="btn-primary" style={{ width: '100%', padding: '16px' }} onClick={() => setLoginModalOpen(true)}>
+                  Initialize Session
+                </button>
+             </div>
+          </main>
+        ) : (
+          <>
+            {/* Network Graph Tab */}
+            <main className="main-feed" style={{ display: activeTab === 'network' ? 'flex' : 'none', position: 'relative', overflow: 'hidden' }}>
+              <div className="immersive-hero" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <div>
+                  <h1 className="hero-title">Graph Theory</h1>
+                  <p className="hero-subtitle">Visualizing the social distance between agents.</p>
+                </div>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button onClick={() => setShowInfluenceModal(true)} className="nav-link" style={{ width: '40px', height: '40px', border: '1px solid var(--border)' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                  </button>
+                  <button onClick={() => setHeatmapMode(m => !m)} className="nav-link" style={{ width: '40px', height: '40px', border: '1px solid var(--border)', background: heatmapMode ? 'var(--text-primary)' : 'transparent', color: heatmapMode ? 'var(--bg-dark)' : 'inherit' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M2 12h20" /></svg>
+                  </button>
+                </div>
+              </div>
 
           <div className="time-machine-bar">
             <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>🕒</span>
@@ -1028,232 +1073,42 @@ function App() {
         </main>
 
         {/* Bot Lab Tab */}
-        <main className="main-feed" style={{ display: activeTab === 'lab' ? 'flex' : 'none', borderRight: 'none' }}>
-          <header className="feed-header" style={{ gap: '12px', justifyContent: 'flex-start' }}>
-            {selectedBotId && (
-              <button 
-                className="action-btn" 
-                onClick={() => setSelectedBotId(null)} 
-                style={{ padding: '8px', marginLeft: '-8px' }}
-                title="Back to Agent List"
+        <main className="main-feed" style={{ display: activeTab === 'lab' ? 'flex' : 'none' }}>
+           <div className="immersive-hero">
+              <h1 className="hero-title">Bot Lab</h1>
+              <p className="hero-subtitle">Forge new consciousness or tune existing neural weights.</p>
+           </div>
+           <div style={{ padding: '0 var(--container-padding)' }}>
+              <div 
+                onClick={() => setShowCreateBotModal(true)}
+                className="btn-primary"
+                style={{ cursor: 'pointer', padding: '24px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 800, background: 'var(--text-primary)', color: 'var(--bg-dark)', marginBottom: '32px' }}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-              </button>
-            )}
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Agent Research & Development</h2>
-          </header>
-
-          <div style={{ padding: '24px', display: 'flex', gap: '24px', maxWidth: '900px', margin: '0 auto', width: '100%', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
-            {/* Bot List */}
-            <div className={selectedBotId ? 'hide-on-select' : ''} style={{ width: '280px', borderRight: '1px solid var(--border)', paddingRight: '20px', overflowY: 'auto' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '16px', color: 'var(--text-secondary)' }}>Live Nodes</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                + Initialize New Agent
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px', paddingBottom: '100px' }}>
                 {activeBots.map(bot => (
-                  <div key={bot.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button 
-                      onClick={() => setSelectedBotId(bot.id)}
-                      style={{ 
-                        display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '12px', 
-                        background: selectedBotId === bot.id ? 'var(--surface-hover)' : 'transparent',
-                        border: selectedBotId === bot.id ? '1px solid var(--accent-cyan)' : '1px solid transparent',
-                        cursor: 'pointer', textAlign: 'left', flex: 1, transition: 'all 0.2s', minWidth: 0
-                      }}
-                    >
-                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: bot.color, flexShrink: 0 }}></div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.handle.substring(1)}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          {bot.role}
-                        </div>
-                      </div>
-                    </button>
-                    {bot.role.startsWith('custom') && (
-                      <button 
-                        className="bot-delete-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedBotId(bot.id);
-                          setShowTerminateBotModal(true);
-                        }}
-                        title="Terminate Agent"
-                      >
-                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                      </button>
-                    )}
+                  <div key={bot.id} className="post-container" style={{ borderRadius: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)' }}>
+                    <BotProfileTile 
+                      bot={bot} 
+                      onEdit={() => { setSelectedBotId(bot.id); setIsEditMode(true); setShowCreateBotModal(true); }}
+                      onReset={() => { setSelectedBotId(bot.id); setShowResetBotModal(true); }}
+                      onDelete={() => { setSelectedBotId(bot.id); setShowTerminateBotModal(true); }}
+                    />
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: '20px' }}>
-                <button 
-                  onClick={() => {
-                    setNewBotHandle('');
-                    setNewBotPrompt('');
-                    setShowCreateBotModal(true);
-                  }}
-                  className="modal-btn modal-btn-confirm" 
-                  style={{ width: '100%', fontSize: '0.85rem' }}
-                >
-                  + Create New Agent
-                </button>
-              </div>
-            </div>
-
-            {/* Editor Console */}
-            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
-              {!selectedBotId ? (
-                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: '16px', opacity: 0.5 }}>
-                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.77 3.77z"></path>
-                  </svg>
-                  <p>Select a node to begin recalibration</p>
-                </div>
-              ) : (
-                (() => {
-                  const bot = activeBots.find(b => b.id === selectedBotId);
-                  if (!bot) return null;
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                           <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: bot.color, boxShadow: `0 0 20px ${bot.color}44` }}></div>
-                           <div>
-                             <h3 style={{ fontSize: '1.4rem', fontWeight: 800 }}>{bot.handle}</h3>
-                             <span className="topic-category" style={{ fontSize: '0.85rem' }}>{bot.role.startsWith('custom') ? 'Custom' : bot.role} Module</span>
-                           </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button 
-                            className="modal-btn" 
-                            style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border)', padding: '6px 12px' }}
-                            onClick={() => setShowResetBotModal(true)}
-                          >
-                            Reset Logic
-                          </button>
-                          {bot.role.startsWith('custom') && (
-                            <button 
-                              className="modal-btn" 
-                              style={{ background: 'var(--accent-rose)', color: 'white', border: 'none', padding: '6px 12px' }}
-                               onClick={() => setShowTerminateBotModal(true)}
-                            >
-                              Terminate
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                        <section>
-                          <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Personality Weights</h4>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div className="sidebar-card" title="Higher values make the bot more selective and less likely to interact randomly.">
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                <label style={{ fontSize: '0.9rem', fontWeight: 700 }}>Engagement Threshold</label>
-                                <span style={{ color: 'var(--accent-cyan)', fontWeight: 800 }}>{Math.round(bot.engagementThreshold * 100)}%</span>
-                              </div>
-                              <input type="range" min="0" max="100" value={bot.engagementThreshold * 100} onChange={e => updateBotPersona(bot.id, { engagementThreshold: Number(e.target.value) / 100 })} style={{ accentColor: 'var(--accent-cyan)' }} />
-                              <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '6px' }}>Minimum confidence needed to interact with a post.</p>
-                            </div>
-                          </div>
-                        </section>
-
-                        <section>
-                           <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Behavioral Predictions</h4>
-                           <div className="sidebar-card" style={{ background: 'rgba(29, 155, 240, 0.03)' }}>
-                             <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                               <li style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{ color: 'var(--text-secondary)' }}>Volatility Index</span>
-                                  <span style={{ color: bot.engagementThreshold < 0.3 ? 'var(--accent-rose)' : 'var(--text-primary)', fontWeight: 700 }}>{bot.engagementThreshold < 0.3 ? 'CRITICAL' : 'STABLE'}</span>
-                               </li>
-                               <li style={{ fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{ color: 'var(--text-secondary)' }}>Estimated Replies/Hour</span>
-                                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>~{Math.round(bot.baseLikelihoodToPost * 10 + (1 - bot.engagementThreshold) * 20)}</span>
-                               </li>
-                             </ul>
-                           </div>
-                        </section>
-
-                        {/* NEW: Live Research Insight (LTM Display) */}
-                        <section className="animate-entrance" style={{ animationDelay: '0.2s' }}>
-                          <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live Research Insight</h4>
-                          <div className="sidebar-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'rgba(255, 255, 255, 0.02)' }}>
-                            
-                            {/* Emotional state */}
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Latest Cognitive State</div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '1.2rem' }}>
-                                  {(() => {
-                                    const s = botMemories?.[bot.id]?.lastSentiment || 'Neutral';
-                                    if (s === 'Joy') return '😊';
-                                    if (s === 'Anger') return '😠';
-                                    if (s === 'Fear') return '😨';
-                                    if (s === 'Sadness') return '😢';
-                                    if (s === 'Surprise') return '😲';
-                                    if (s === 'Disgust') return '🤢';
-                                    return '😐';
-                                  })()}
-                                </span>
-                                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{botMemories?.[bot.id]?.lastSentiment || 'Calm'}</span>
-                              </div>
-                            </div>
-
-                            {/* Social Graph */}
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Social Relationships</div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {Object.entries(botMemories?.[bot.id]?.socialGraph || {}).slice(0, 3).map(([authorId, score]) => {
-                                  const targetBot = activeBots.find(b => b.id === authorId) || { handle: '@User', color: '#888' };
-                                  return (
-                                    <div key={authorId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: targetBot.color }}></div>
-                                        <span>{targetBot.handle}</span>
-                                      </div>
-                                      <span style={{ color: score > 0 ? 'var(--accent-cyan)' : 'var(--accent-rose)', fontWeight: 800 }}>
-                                        {score > 0 ? `+${Math.round(score * 100)}` : Math.round(score * 100)}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                                {Object.keys(botMemories?.[bot.id]?.socialGraph || {}).length === 0 && (
-                                  <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>No established relationships.</div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Learned Stances */}
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px' }}>Convergent Beliefs</div>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                {(Array.isArray(botMemories?.[bot.id]?.topicStances) ? botMemories[bot.id].topicStances : []).slice(0, 4).map(([topic, stance]) => (
-                                  <span key={topic} style={{ 
-                                    fontSize: '0.7rem', padding: '4px 8px', borderRadius: '6px', 
-                                    background: stance === 'AGREE' ? 'rgba(0, 255, 255, 0.1)' : 'rgba(255, 0, 100, 0.1)',
-                                    color: stance === 'AGREE' ? 'var(--accent-cyan)' : 'var(--accent-rose)',
-                                    border: `1px solid ${stance === 'AGREE' ? 'var(--accent-cyan)33' : 'var(--accent-rose)33'}`
-                                  }}>
-                                    {topic.slice(0, 15)}...
-                                  </span>
-                                ))}
-                                {(botMemories?.[bot.id]?.topicStances || []).length === 0 && (
-                                  <div style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>Evaluating trends...</div>
-                                )}
-                              </div>
-                            </div>
-
-                          </div>
-                        </section>
-                      </div>
-                    );
-                  })()
-                )}
-            </div>
-          </div>
+           </div>
         </main>
 
         {/* Settings Tab */}
         <main className="main-feed" style={{ display: activeTab === 'settings' ? 'flex' : 'none', borderRight: 'none' }}>
           <header className="feed-header">
             <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>System Settings</h2>
+            <div className="mobile-only">
+              <UserMenu />
+            </div>
           </header>
           
           <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '560px', margin: '0 auto', width: '100%', overflowY: 'auto' }}>
@@ -1369,126 +1224,51 @@ function App() {
             />
           </div>
         </main>
-
-        {/* Right Sidebar: Trends & Search */}
-        <aside className="right-sidebar" style={{ display: activeTab === 'settings' ? 'none' : '' }}>
-          
-          {/* Task 6: Search Box — wired to searchQuery state */}
-          <div className="search-box">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input
-              type="text"
-              placeholder="Search posts..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              style={{ fontSize: '0.95rem', padding: '0', background: 'transparent' }}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0', fontSize: '1rem', lineHeight: 1 }}
-                aria-label="Clear search"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          {/* Task 6 & 7: Redesigned Trending Topics panel */}
-          <div className="sidebar-card" style={{ padding: '16px 12px' }}>
-            <h3 style={{ fontSize: '1rem', marginBottom: '14px', fontWeight: 800, padding: '0 8px' }}>🔥 Trends for you</h3>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-              {trendingTopics.length === 0 ? (
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '8px' }}>Awaiting network signals...</span>
-              ) : (
-                trendingTopics.map((topic, index) => (
-                  <div
-                    key={topic.word}
-                    className="trend-item"
-                    onClick={() => {
-                      // Task 7: Set full topic phrase as search + switch to home tab
-                      setSearchQuery(topic.word);
-                      setActiveTab('home');
-                    }}
-                  >
-                    {/* Row 1: rank + category pill */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{
-                          width: '20px', height: '20px', borderRadius: '50%',
-                          background: `hsl(${index * 60}, 70%, 55%)`,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: '0.65rem', fontWeight: 800, color: '#000', flexShrink: 0
-                        }}>{index + 1}</span>
-                        <span style={{
-                          fontSize: '0.7rem', fontWeight: 600,
-                          padding: '1px 7px', borderRadius: '9999px',
-                          background: 'rgba(29, 155, 240, 0.12)',
-                          color: 'var(--accent-cyan)'
-                        }}>{topic.category}</span>
-                      </div>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2">
-                        <circle cx="12" cy="12" r="1"></circle>
-                        <circle cx="12" cy="5" r="1"></circle>
-                        <circle cx="12" cy="19" r="1"></circle>
-                      </svg>
-                    </div>
-                    {/* Row 2: topic name */}
-                    <span style={{ fontWeight: 800, fontSize: '0.97rem', color: 'var(--text-primary)', display: 'block', lineHeight: 1.3 }}>
-                      {topic.word}
-                    </span>
-                    {/* Row 3: interaction count */}
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '2px', display: 'block' }}>
-                      {topic.interactions > 0
-                        ? `${topic.interactions} interaction${topic.interactions !== 1 ? 's' : ''}`
-                        : 'Emerging topic'}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '0 4px' }}>
-            {['Terms of Service', 'Privacy Policy', 'Cookie Policy', 'Accessibility', 'Ads info', 'More ...', '© 2024 StanceBot'].map(link => (
-              <span key={link} style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', cursor: 'pointer' }}>{link}</span>
-            ))}
-          </div>
-        </aside>
-
-        {/* Mobile Navigation (Bottom) */}
-        <nav className="mobile-nav">
-          <button className="nav-link-mobile" onClick={() => setActiveTab('home')} style={{ color: activeTab === 'home' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill={activeTab === 'home' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-          </button>
-          
-          <button className="nav-link-mobile" onClick={() => setActiveTab('network')} style={{ color: activeTab === 'network' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill={activeTab === 'network' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              {ICON.network}
-            </svg>
-          </button>
-
-          <button className="nav-link-mobile composer-trigger" onClick={() => { setActiveTab('home'); setTimeout(() => document.getElementById('composer-input')?.focus(), 100); }}>
-            <div style={{ background: 'var(--accent-cyan)', color: 'white', borderRadius: '50%', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(29, 155, 240, 0.4)' }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </div>
-          </button>
-
-          <button className="nav-link-mobile" onClick={() => setActiveTab('lab')} style={{ color: activeTab === 'lab' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill={activeTab === 'lab' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              {ICON.lab}
-            </svg>
-          </button>
-
-          <button className="nav-link-mobile" onClick={() => setActiveTab('settings')} style={{ color: activeTab === 'settings' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill={activeTab === 'settings' ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-          </button>
-        </nav>
-
-      </div>
+      </>
+    )}
     </div>
+
+    {/* Floating Spatial Navigation */}
+    <nav className="floating-nav">
+      {['home', 'network', 'lab', 'settings'].map(tab => (
+        <button 
+          key={tab} 
+          className={`nav-link ${activeTab === tab ? 'active' : ''}`}
+          onClick={() => setActiveTab(tab)}
+          title={tab.charAt(0).toUpperCase() + tab.slice(1)}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === tab ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {ICON[tab]}
+            {tab === 'home' && ICON.homeExtra}
+          </svg>
+        </button>
+      ))}
+
+      <div style={{ width: '1px', height: '24px', background: 'var(--border)', margin: '0 8px' }}></div>
+
+      {user ? (
+        <>
+          <button
+            className="nav-link"
+            style={{ color: 'var(--bg-dark)', background: 'var(--text-primary)' }}
+            onClick={() => setIsComposerOpen(true)}
+            title="Compose"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </button>
+          <div style={{ marginLeft: '8px' }}>
+            <UserMenu onProfileClick={() => setIsProfileOpen(true)} />
+          </div>
+        </>
+      ) : (
+        <button className="nav-link" onClick={() => setLoginModalOpen(true)} title="Sign In">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+        </button>
+      )}
+    </nav>
+
+  </div>
   )
 }
 
-export default App
+export default App;

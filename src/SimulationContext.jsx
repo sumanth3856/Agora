@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
 import Groq from 'groq-sdk';
 import { BOT_PERSONAS, BOT_SYSTEM_PROMPTS, POST_TOPIC_POOL } from './types';
 import { supabase } from './supabaseClient';
+import { useAuth } from './AuthContext';
 
 // ── Bot Configuration & Archetypes ──────────────────────────────────────────
 const NARRATIVE_GOALS = [
@@ -360,12 +361,22 @@ export const dbRowToPost = (row) => {
 // SimulationProvider
 // ─────────────────────────────────────────────────────────────────────────────
 export const SimulationProvider = ({ children }) => {
-  const USER_PERSONA = {
-    id: 'human_user',
-    handle: '@Myself',
-    role: 'human',
-    color: '#ffffffff'
-  };
+  const { user } = useAuth();
+
+  const USER_PERSONA = useMemo(() => {
+    if (!user) return { id: 'human_user', handle: '@Myself', role: 'human', color: '#ffffffff' };
+    const handle = user.user_metadata?.full_name 
+      ? `@${user.user_metadata.full_name.replace(/\s+/g, '')}`
+      : `@${user.email.split('@')[0]}`;
+    
+    return {
+      id: user.id,
+      handle: handle,
+      role: 'human',
+      color: '#ffffffff',
+      avatar: user.user_metadata?.avatar_url
+    };
+  }, [user]);
 
   const [posts, setPosts] = useState([]);
   const [activeBots, setActiveBots] = useState(INITIAL_BOTS);
@@ -404,9 +415,9 @@ export const SimulationProvider = ({ children }) => {
         recentRewards: [],         
         lastSentiment: 'Neutral',  
         receivedSentiments: [],    
-        personalityDrift: 0,       
         myInteractions: {},
-        socialGraph: {} // NEW: { authorId: score }
+        socialGraph: {}, 
+        timeZoneOffset: (Math.random() - 0.5) * 24 * 60 * 60 * 1000 // Random global timezone
       };
     }
     return botMemoryRef.current[botId];
@@ -541,14 +552,20 @@ export const SimulationProvider = ({ children }) => {
         setHumanLiked(new Set(likedSet));
         setHumanShared(new Set(sharedSet));
 
-        // 6. Catch-up logic
+        // 6. Catch-up logic (Simulating 24/7 background activity)
         const latestTimestamp = Math.max(...dbPosts.map(p => p.timestamp), 0);
         const missedMinutes = (Date.now() - latestTimestamp) / 60000;
         if (missedMinutes > 5 && dbPosts.length > 0) {
-          const catchUpCount = Math.min(3, Math.floor(missedMinutes / 10));
-          isDev && console.log(`[Catch-up] ${missedMinutes.toFixed(1)} min elapsed, running ${catchUpCount} catch-up post(s)`);
+          const catchUpCount = Math.min(6, Math.floor(missedMinutes / 15)); // Up to 6 posts for long absences
+          isDev && console.log(`[AIML Catch-up] ${missedMinutes.toFixed(1)} min offline, generating ${catchUpCount} proactive post(s)`);
+          
+          const timeStep = (Date.now() - latestTimestamp) / (catchUpCount + 1);
+          
           [...allBots].sort(() => Math.random() - 0.5).slice(0, catchUpCount).forEach((bot, i) => {
-            setTimeout(() => createNewPost(bot), 3000 + i * 5000);
+             // Calculate a historical timestamp for this post so feed looks active while user was gone
+             const historicalTime = latestTimestamp + timeStep * (i + 1);
+            // Stagger actual API generation calls 5s apart to respect Rate Limits
+            setTimeout(() => createNewPost(bot, historicalTime), 3000 + i * 5000);
           });
         }
 
@@ -837,7 +854,7 @@ Write ONE short, punchy response (1–2 sentences max). No quotes, no hashtags, 
   };
 
   // ── Core: Organic Bot Post ──────────────────────────────────────────────────
-  const createNewPost = async (bot) => {
+  const createNewPost = async (bot, timestampOverride = null) => {
     setGeneratingBots(prev => new Set(prev).add(bot.id));
     
     try {
@@ -867,12 +884,13 @@ Share a short, highly opinionated post. Be direct and passionate. No hashtags, n
       if (!text) return;
 
       const postId = `post_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const postTimestamp = timestampOverride || Date.now();
       const newPost = { 
         id: postId, 
         author: bot, 
         text, 
         thought: internalThought,
-        timestamp: Date.now(), 
+        timestamp: postTimestamp, 
         replies: [], 
         likes: 0, 
         shares: 0 
@@ -961,8 +979,29 @@ Share a short, highly opinionated post. Be direct and passionate. No hashtags, n
 
     try {
       const currentState = stateRef.current;
-      const activityModifier = (currentState.curiosityMultiplier / 100) + (currentState.outrageMultiplier / 100);
       const now = Date.now();
+      
+      // Phase 3 AIML: Sleep/Wake Cycles
+      const localHour = new Date(now + memory.timeZoneOffset).getUTCHours();
+      const isSleeping = localHour >= 23 || localHour < 7;
+      // If sleeping, 95% chance to do nothing this tick (simulate human life)
+      if (isSleeping && Math.random() < 0.95) {
+         return; 
+      }
+
+      // Phase 3 AIML: Feed Temperature (Context Awareness)
+      const recentPostsCount = currentState.posts.filter(p => (now - p.timestamp) < 3600000).length;
+      const isFeedCold = recentPostsCount < 5;
+      const isFeedHot = recentPostsCount > 20;
+      
+      let contextModifier = 1.0;
+      const roleStr = bot.role.toLowerCase();
+      // Provocateurs/Trolls post more when feed is dead to stir the pot
+      if (isFeedCold && (roleStr.includes('troll') || roleStr.includes('agitator'))) contextModifier = 2.0;
+      // Followers/Optimists post more when feed is active and hot
+      if (isFeedHot && (roleStr.includes('optimist') || roleStr.includes('supporter'))) contextModifier = 1.5;
+
+      const activityModifier = ((currentState.curiosityMultiplier / 100) + (currentState.outrageMultiplier / 100)) * contextModifier;
 
       // 1. RL Update Loop ($Q_{update}$)
       // Calculate Reward based on engagement received on bot's recent posts/replies

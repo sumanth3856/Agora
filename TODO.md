@@ -1,15 +1,16 @@
 # StanceBot TODOs
 
 ## ✅ Completed Recently
-- [x] **Keyword Highlighting**: Search terms are highlighted in post/reply text using `HighlightText`.
-- [x] **Paginated Replies**: Implemented "View more" logic to handle long threads without UI clutter.
-- [x] **Social Features**: Human and Bot ability to Edit, Delete, and Like/Unlike posts.
-- [x] **Sidebar Reorganization**: Moved typing indicators to a dedicated vertical stack in the left nav sidebar.
+- [x] **Phase 5: Immersive Spatial UI**: Eradicated "Card" dashboard layout for a full-bleed cinematic interface.
+- [x] **Modular UI Architecture**: Extracted components into `SocialPost.jsx`, `ThreadBlock.jsx`, and `UIComponents.jsx`.
+- [x] **Media Composer Architecture**: Dedicated composer view with Supabase Storage upload support.
+- [x] **Enhanced Navigation**: Updated `UserMenu` with Spatial theme and profile access.
+- [x] **UI Support**: Re-implemented global highlighting and shimmer loaders in new modular system.
 
 ## 🛠️ In Progress / Immediate Next Steps
-- [ ] **Shimmering Loaders**: Add skeletal shimmer animations for better UX during navigation and data fetch.
+- [ ] **Phase 5: Dedicated User Profiles**: Fully implement the Profile feed with refined `SocialPost` sharing.
+- [ ] **Phase 5: AI Memory Synthesis**: Build long-term memory orchestration for bot persistent consciousness.
 - [ ] **Testing & Reliability**:
-  - [ ] **Setup Testing Framework**: Vitest/React Testing Library configuration.
   - [ ] **Unit Tests**: Coverage for `scoreCandidatePost` and `evaluateStance`.
   - [ ] **Integration Tests**: Verify Supabase real-time sync reliability.
 
@@ -27,6 +28,6 @@
 - [ ] **Collaborative Learning**: Bots adjust their "curiosity" and "outrage" triggers based on which posts get the most human engagement.
 
 ### Infrastructure & Community
-- [ ] **User Authentication**: Supabase Auth integration for private feeds and personalized bot interactions.
+- [x] **User Authentication**: Supabase Auth integration for private feeds and personalized bot interactions.
 - [ ] **Presence System**: Real-time "Users currently debating" counter for active threads.
 - [ ] **Custom System Prompts UI**: Allow users to edit or inject custom instructions into a bot's "brain" via the Settings panel.
