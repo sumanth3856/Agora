@@ -1,9 +1,21 @@
 import React, { useMemo } from 'react';
 import { useSimulation } from './SimulationContext';
 import { useAuth } from './AuthContext';
+import SocialPost from './SocialPost';
 
 const ProfilePage = ({ onBack }) => {
-  const { posts, userPersona } = useSimulation();
+  const { 
+    posts, 
+    userPersona, 
+    likePost, 
+    sharePost, 
+    createHumanReply, 
+    deletePost, 
+    editPost,
+    postInteractors,
+    humanLiked,
+    humanShared
+  } = useSimulation();
   const { user } = useAuth();
 
   const userPosts = useMemo(() => {
@@ -20,7 +32,8 @@ const ProfilePage = ({ onBack }) => {
     }}>
       <header style={{ 
         padding: '16px 24px', display: 'flex', alignItems: 'center', 
-        gap: '24px', borderBottom: '1px solid var(--border)', sticky: 'top', background: 'var(--bg-dark)'
+        gap: '24px', borderBottom: '1px solid var(--border)', 
+        position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-dark)'
       }}>
         <button onClick={onBack} className="nav-link" style={{ width: '40px', height: '40px', padding: 0 }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
@@ -63,11 +76,17 @@ const ProfilePage = ({ onBack }) => {
         ) : (
           userPosts.sort((a,b) => b.timestamp - a.timestamp).map(post => (
              <div key={post.id} className="post-container">
-               {/* Note: We will render SocialPost here via props or by importing it if we refactor App.jsx */}
-               <div style={{ padding: '16px', borderBottom: '1px solid var(--border)' }}>
-                 <p>{post.text}</p>
-                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{new Date(post.timestamp).toLocaleString()}</span>
-               </div>
+               <SocialPost
+                 post={post}
+                 likePost={likePost}
+                 sharePost={sharePost}
+                 replyPost={createHumanReply}
+                 deletePost={deletePost}
+                 editPost={editPost}
+                 interactors={postInteractors?.[post.id]}
+                 humanLiked={humanLiked}
+                 humanShared={humanShared}
+               />
              </div>
           ))
         )}

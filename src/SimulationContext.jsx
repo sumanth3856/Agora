@@ -1547,6 +1547,7 @@ Share a short, highly opinionated post. Be direct and passionate. No hashtags, n
       resetBotMemory,
       persuasions,
       authorMap,
+      userPersona: USER_PERSONA
     }}>
       {children}
     </SimulationContext.Provider>

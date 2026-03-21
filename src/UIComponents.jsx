@@ -25,9 +25,9 @@ export const UIModal = ({ isOpen, onClose, title, description, onConfirm, confir
         {children}
 
         {showActions && (
-          <div className="modal-actions" style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
-            <button className="modal-btn modal-btn-cancel" onClick={onClose} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '8px 16px', borderRadius: '6px' }}>Cancel</button>
-            <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }} style={{ background: variant === 'danger' ? 'var(--accent-rose)' : 'var(--text-primary)', color: variant === 'danger' ? '#fff' : 'var(--bg-dark)', border: 'none', padding: '8px 16px', borderRadius: '6px', fontWeight: 600 }}>{confirmText}</button>
+          <div className="modal-actions">
+            <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
+            <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
           </div>
         )}
       </div>

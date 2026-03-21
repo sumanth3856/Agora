@@ -22,9 +22,9 @@ const BotProfileTile = memo(({ bot, onEdit, onReset, onDelete }) => (
     </div>
 
     <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-      <button onClick={onEdit} className="dropdown-item" style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)' }}>Tune</button>
-      <button onClick={onReset} className="dropdown-item" style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)' }}>Reset</button>
-      <button onClick={onDelete} className="dropdown-item danger" style={{ flex: 1, textAlign: 'center' }}>Kill</button>
+      <button onClick={onEdit} className="btn-primary" style={{ flex: 1, fontSize: '0.8rem', padding: '8px 4px' }}>Tune</button>
+      <button onClick={onReset} className="btn-primary" style={{ flex: 1, fontSize: '0.8rem', padding: '8px 4px' }}>Reset</button>
+      <button onClick={onDelete} className="btn-primary" style={{ flex: 1, fontSize: '0.8rem', padding: '8px 4px', color: 'white', backgroundColor: 'var(--accent-danger)' }}>Kill</button>
     </div>
   </div>
 ));

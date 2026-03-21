@@ -405,23 +405,7 @@ function App() {
               <div style={{ position: 'absolute', top: '16px', left: '0', right: '0', display: 'flex', justifyContent: 'center', zIndex: 10 }}>
                 <button
                   onClick={popBuffer}
-                  className="animate-entrance"
-                  style={{ 
-                    background: 'var(--text-primary)', 
-                    color: 'var(--bg-dark)', 
-                    border: 'none', 
-                    borderRadius: '9999px',
-                    padding: '12px 28px',
-                    fontSize: '0.95rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    transform: 'translateZ(0)',
-                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.2)',
-                    transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
-                  }}
-                  onMouseOver={(e) => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 16px 40px rgba(0,0,0,0.5)'; }}
-                  onMouseOut={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.2)'; }}
-                  onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
+                  className="new-posts-pill animate-entrance"
                 >
                   Show {bufferedPosts.length} new post{bufferedPosts.length > 1 ? 's' : ''}
                 </button>
@@ -532,8 +516,8 @@ function App() {
            <div style={{ padding: '0 var(--container-padding)' }}>
               <div 
                 onClick={() => setShowCreateBotModal(true)}
-                className="btn-primary"
-                style={{ cursor: 'pointer', padding: '24px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 800, background: 'var(--text-primary)', color: 'var(--bg-dark)', marginBottom: '32px' }}
+                className="btn-premium-action"
+                style={{ marginBottom: '32px' }}
               >
                 + Initialize New Agent
               </div>
@@ -586,15 +570,20 @@ function App() {
             </section>
 
 
-            <section style={{ borderTop: '1px solid var(--border)', paddingTop: '24px', paddingBottom: '80px' }}>
-              <h3 style={{ fontSize: '1.2rem', color: 'var(--accent-danger)', fontWeight: 800, marginBottom: '12px' }}>Danger Zone</h3>
-              <button
-                className="btn-danger"
-                style={{ width: '100%' }}
-                onClick={() => setShowWipeModal(true)}
-              >
-                Reset Network Data
-              </button>
+            <section style={{ borderTop: '1px solid var(--border)', paddingTop: '32px', paddingBottom: '80px' }}>
+              <div style={{ padding: '24px', borderRadius: '16px', border: '1px solid rgba(255, 69, 0, 0.2)', background: 'rgba(255, 69, 0, 0.03)' }}>
+                <h3 style={{ fontSize: '1.1rem', color: 'var(--accent-rose)', fontWeight: 800, marginBottom: '8px' }}>Danger Zone</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                  Resetting the network will wipe all posts, custom bots, and interaction history. This action cannot be undone.
+                </p>
+                <button
+                  className="btn-danger"
+                  style={{ width: '100%' }}
+                  onClick={() => setShowWipeModal(true)}
+                >
+                  Terminate & Wipe Network Data
+                </button>
+              </div>
             </section>
 
             <UIModal 
