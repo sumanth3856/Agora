@@ -1,26 +1,19 @@
-import React, { useRef, useEffect, useState, useMemo, useCallback, memo } from 'react'
-import { createPortal } from 'react-dom'
+import React, { useRef, useEffect, useState, useMemo, useCallback, memo, Suspense, lazy } from 'react'
 import { useSimulation, groq } from './SimulationContext'
-import ForceGraph from './ForceGraph'
 import './index.css'
 import { useAuth } from './AuthContext'
 import Login from './Login'
 import UserMenu from './UserMenu'
 import ComposerPage from './ComposerPage'
 import ProfilePage from './ProfilePage'
+import BotProfileTile from './BotProfileTile'
+import SocialPost from './SocialPost'
+import ThreadBlock from './ThreadBlock'
+import { UIModal, HighlightText, TypingIndicator, ShimmerPost } from './UIComponents'
+import { getRelativeTime, flattenReplies } from './utils'
 
-// Helper for human-readable time
-const getRelativeTime = (timestamp) => {
-  const diffInSeconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (diffInSeconds < 60) return `${diffInSeconds}s`;
-  const diffInMinutes = Math.floor(diffInSeconds / 60);
-  if (diffInMinutes < 60) return `${diffInMinutes}m`;
-  // Task 5: After 1h show exact time (e.g. "2:34 PM") instead of "Xh"
-  if (diffInMinutes < 1440) {
-    return new Date(timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  }
-  return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-};
+// Lazy load heavy ForceGraph
+const ForceGraph = lazy(() => import('./ForceGraph'));
 
 const useTrendingTopics = (posts, groqInstance) => {
   const [topics, setTopics] = useState([]);
@@ -29,9 +22,9 @@ const useTrendingTopics = (posts, groqInstance) => {
     const STOP = new Set(['the', 'is', 'at', 'which', 'on', 'and', 'for', 'that', 'with', 'are', 'this', 'was', 'but', 'not', 'have', 'from', 'they', 'what', 'their', 'has', 'would', 'will', 'make', 'more', 'than', 'some', 'these', 'them', 'been', 'had', 'were', 'said', 'each', 'most', 'other', 'into', 'over', 'then', 'time', 'people', 'think', 'know', 'really', 'only', 'even', 'those', 'such', 'much', 'should', 'because']);
     const now = Date.now();
     const scores = {}, engs = {};
-    const flatten = (arr) => arr.reduce((acc, p) => [...acc, { ...p, eng: (p.likes || 0) + (p.shares || 0) + (p.replies?.length || 0) }, ...flatten(p.replies || [])], []);
+    const flattenPosts = (arr) => arr.reduce((acc, p) => [...acc, { ...p, eng: (p.likes || 0) + (p.shares || 0) + (p.replies?.length || 0) }, ...flattenPosts(p.replies || [])], []);
     
-    flatten(posts).forEach(p => {
+    flattenPosts(posts).forEach(p => {
       const weight = Math.max(0.3, 1 / (1 + (now - p.timestamp) / 3600000 * 0.1)) * (1 + Math.log1p(p.eng || 0));
       const tokens = (p.text || '').toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_~()"]/g, '').split(/\s+/).filter(w => w.length > 3 && !STOP.has(w));
       tokens.forEach(w => { scores[w] = (scores[w] || 0) + weight; engs[w] = (engs[w] || 0) + (p.eng || 0); });
@@ -60,62 +53,6 @@ const useTrendingTopics = (posts, groqInstance) => {
   return topics;
 };
 
-// ─── UI Utility: Keyword Highlighting ─────────────────────────────────────────
-const HighlightText = memo(({ text, highlight }) => {
-  if (!highlight || !highlight.trim()) {
-    return <span>{text}</span>;
-  }
-  
-  const regex = new RegExp(`(${highlight.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  const parts = text.split(regex);
-  
-  return (
-    <span>
-      {parts.map((part, i) => 
-        regex.test(part) ? (
-          <mark key={i} style={{ backgroundColor: 'rgba(29, 155, 240, 0.4)', color: 'inherit', borderRadius: '3px', padding: '0 2px' }}>
-            {part}
-          </mark>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
-    </span>
-  );
-});
-
-// ─── TypingIndicator Component ────────────────────────────────────────────────
-// T3: Now rendered in the left sidebar as a vertical stack
-const TypingIndicator = memo(({ handle, color }) => (
-  <div className="typing-indicator animate-entrance">
-    <div style={{ 
-      width: '22px', height: '22px', borderRadius: '50%', 
-      backgroundColor: color, display: 'flex', alignItems: 'center', 
-      justifyContent: 'center', color: '#000', fontWeight: 800, fontSize: '0.6rem',
-      boxShadow: 'inset 0 0 0 1px rgba(0, 0, 0, 0.16)', flexShrink: 0
-    }}>
-      {handle.substring(1, 2).toUpperCase()}
-    </div>
-    <span>{handle.substring(1)} is thinking</span>
-    <div className="dot"></div>
-    <div className="dot"></div>
-    <div className="dot"></div>
-  </div>
-));
-
-// ─── ShimmerPost: Skeleton loader for posts ───────────────────────────────────
-const ShimmerPost = memo(() => (
-  <div className="shimmer-wrapper">
-    <div className="shimmer-avatar"></div>
-    <div className="shimmer-content">
-      <div className="shimmer-line header"></div>
-      <div className="shimmer-line"></div>
-      <div className="shimmer-line title"></div>
-      <div className="shimmer-line short"></div>
-    </div>
-  </div>
-));
-
 const ICON = {
   home: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>,
   homeExtra: <polyline points="9 22 9 12 15 12 15 22"></polyline>,
@@ -123,510 +60,6 @@ const ICON = {
   lab: <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.77 3.77z"></path>,
   settings: <><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></>
 };
-
-const UIModal = ({ isOpen, onClose, title, description, onConfirm, confirmText = 'Confirm', variant = 'default', children, showActions = true }) => {
-  useEffect(() => {
-    if (isOpen) {
-      document.body.classList.add('modal-open');
-    } else {
-      document.body.classList.remove('modal-open');
-    }
-    return () => {
-      document.body.classList.remove('modal-open');
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return createPortal(
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <button className="modal-close-btn" onClick={onClose} aria-label="Close">✕</button>
-        {title && <h2 className="modal-title">{title}</h2>}
-        {description && <p className="modal-description">{description}</p>}
-        
-        {children}
-
-        {showActions && (
-          <div className="modal-actions">
-            <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
-            <button className={`modal-btn modal-btn-confirm ${variant === 'danger' ? 'danger' : ''}`} onClick={() => { onConfirm(); onClose(); }}>{confirmText}</button>
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body
-  );
-};
-
-// ─── SocialPost Component ─────────────────────────────────────────────────────
-// showThreadLine: if true, draws the vertical thread line below the avatar
-const SocialPost = memo(({ post, likePost, sharePost, replyPost, deletePost, editPost, searchQuery, showThreadLine = false, interactors, humanLiked, humanShared, isReply = false, onViewInThread }) => {
-  const hasInteractors = interactors?.likes?.length > 0 || interactors?.shares?.length > 0 || interactors?.replies?.length > 0;
-  const [showReplyBox, setShowReplyBox] = useState(false);
-  const [replyText, setReplyText] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState(post.text);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const replyInputRef = useRef(null);
-  const isOwn = post.author.id === 'human_user';
-
-  const handleReplySubmit = () => {
-    if (!replyText.trim()) return;
-    replyPost(post, replyText.trim());
-    setReplyText('');
-    setShowReplyBox(false);
-  };
-
-  const handleReplyOpen = (e) => {
-    e.stopPropagation();
-    setShowReplyBox(s => !s);
-    setTimeout(() => replyInputRef.current?.focus(), 50);
-  };
-
-  const handleEditSubmit = () => {
-    if (!editText.trim() || editText === post.text) { setIsEditing(false); return; }
-    editPost(post.id, editText.trim());
-    setIsEditing(false);
-  };
-
-  const formatActors = (actors) => {
-    if (!actors || actors.length === 0) return '';
-    if (actors.length === 1) return actors[0].handle;
-    if (actors.length === 2) return `${actors[0].handle} and ${actors[1].handle}`;
-    return `${actors[0].handle} and ${actors.length - 1} others`;
-  };
-
-  const renderContentWithMedia = (text, highlight, HighlightComponent) => {
-    if (!text) return null;
-    const mediaMatch = text.match(/\[MEDIA:\s*([^\]]+)\]/);
-    if (!mediaMatch) return HighlightComponent ? <HighlightComponent text={text} highlight={highlight} /> : text;
-    
-    const cleanText = text.replace(/\[MEDIA:\s*[^\]]+\]/, '').trim();
-    const topic = mediaMatch[1].trim().toLowerCase();
-    
-    return (
-      <>
-        {cleanText && (
-          <div style={{ marginBottom: '12px' }}>
-            {HighlightComponent ? <HighlightComponent text={cleanText} highlight={highlight} /> : cleanText}
-          </div>
-        )}
-        <div style={{ 
-          marginTop: '8px', borderRadius: '16px', overflow: 'hidden', 
-          border: '1px solid var(--border)', background: 'var(--border)',
-          aspectRatio: '16 / 9'
-        }}>
-          <img 
-            src={`https://picsum.photos/seed/${topic}/640/360`} 
-            alt={topic} 
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={(e) => e.target.style.display = 'none'}
-          />
-        </div>
-      </>
-    );
-  };
-
-  /* T2: Fresh reference for isHumanLiked on every render to ensure re-render */
-  const isHumanLiked = useMemo(() => humanLiked?.has(post.id), [humanLiked, post.id]);
-  const isHumanShared = useMemo(() => humanShared?.has(post.id), [humanShared, post.id]);
-
-  return (
-    <div className="post-card animate-entrance">
-      {/* Left Column: Avatar & Thread Line */}
-      <div className="post-avatar-col">
-        <div style={{ 
-          width: '44px', height: '44px', borderRadius: '50%', 
-          backgroundColor: post.author.color,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#000', fontWeight: 700, fontSize: '1.1rem',
-          flexShrink: 0, boxShadow: 'none'
-        }}>
-          {post.author.handle.substring(1, 2).toUpperCase()}
-        </div>
-        {showThreadLine && <div className="thread-line"></div>}
-      </div>
-
-      {/* Right Column: Content */}
-      <div className="post-content-col" style={{ paddingBottom: '8px' }}>
-        {/* T5: Replying-to attribution */}
-        {isReply && post.replyToHandle && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5">
-              <polyline points="15 14 9 8 15 2" />
-              <path d="M9 8H19a2 2 0 0 1 2 2v7" />
-            </svg>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Replying to{' '}
-              <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>{post.replyToHandle}</span>
-            </span>
-          </div>
-        )}
-
-        {/* T2: View-in-thread link for search results */}
-        {onViewInThread && (
-          <button
-            onClick={onViewInThread}
-            style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', padding: '0 0 4px 0', textAlign: 'left' }}
-          >
-            ⤷ View in thread
-          </button>
-        )}
-
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>
-            {isOwn ? 'Me' : post.author.handle.substring(1)}
-          </span>
-          {!isOwn && <span className="agent-badge">Agent</span>}
-          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>{post.author.handle}</span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>·</span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>{getRelativeTime(post.timestamp)}</span>
-          {post.edited && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic' }}>(edited)</span>}
-
-          {/* Delete/Edit Controls */}
-            {isOwn && (
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                <button 
-                   onClick={() => { setEditText(post.text); setIsEditing(!isEditing); }} 
-                   style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '5px' }}
-                   title="Edit Post"
-                >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
-                </button>
-                <button 
-                   onClick={(e) => { e.stopPropagation(); setShowDeleteModal(true); }} 
-                   style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', opacity: 0.8, cursor: 'pointer', padding: '5px' }}
-                   title="Delete Post"
-                >
-                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                </button>
-              </div>
-            )}
-        </div>
-
-        {/* Delete Confirmation Modal */}
-        <UIModal 
-          isOpen={showDeleteModal}
-          onClose={() => setShowDeleteModal(false)}
-          title="Delete Post?"
-          description="Are you sure you want to delete this post? This action cannot be undone."
-          onConfirm={() => deletePost(post.id)}
-          confirmText="Delete"
-          variant="danger"
-        />
-
-        {/* Internal Monologue (Reasoning Block) — only for Bots */}
-        {!isOwn && post.thought && (
-          <div className="reasoning-block">
-            {post.thought}
-          </div>
-        )}
-
-        {/* Post Text / Edit Field */}
-        {isEditing ? (
-          <div style={{ marginBottom: '12px' }}>
-            <textarea
-              autoFocus
-              value={editText}
-              onChange={e => setEditText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSubmit(); } if (e.key === 'Escape') setIsEditing(false); }}
-              rows="3"
-              style={{ width: '100%', fontSize: '1rem', lineHeight: '1.5', padding: '8px', borderRadius: '8px', border: '1px solid var(--accent-cyan)', background: 'var(--surface-hover)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }}
-            />
-            <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setIsEditing(false)} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: '9999px', padding: '4px 14px', fontSize: '0.85rem', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleEditSubmit} className="btn-primary" style={{ padding: '4px 18px', fontSize: '0.85rem', backgroundColor: 'var(--accent-cyan)', color: '#fff' }}>Save</button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ 
-            fontSize: '15px', 
-            lineHeight: 1.6, 
-            fontWeight: 400,
-            color: 'var(--text-primary)',
-            wordBreak: 'break-word',
-            marginBottom: '12px'
-          }}>
-            {renderContentWithMedia(post.text, searchQuery, HighlightText)}
-          </div>
-        )}
-
-        {/* Action Bar */}
-        <div style={{ display: 'flex', gap: '32px', marginTop: '12px', marginBottom: '4px' }}>
-          <button className={`action-btn reply${showReplyBox ? ' active-reply' : ''}`} onClick={handleReplyOpen} title="Reply">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill={showReplyBox ? 'rgba(29,155,240,0.15)' : 'none'} stroke={showReplyBox ? 'var(--accent-cyan)' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-            </svg>
-            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: showReplyBox ? 'var(--accent-cyan)' : 'inherit' }}>{post.replies?.length > 0 ? post.replies.length : ''}</span>
-          </button>
-
-          <button className={`action-btn share ${isHumanShared ? 'shared' : ''}`} onClick={(e) => { e.stopPropagation(); sharePost(post.id, post.author.id); }} style={{ opacity: isHumanShared ? 0.7 : 1 }} title={isHumanShared ? 'Reposted' : 'Repost'}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill={isHumanShared ? 'var(--accent-cyan)' : 'none'} stroke={isHumanShared ? 'var(--accent-cyan)' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
-              <path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
-            </svg>
-            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: isHumanShared ? 'var(--accent-cyan)' : 'inherit' }}>{post.shares > 0 ? post.shares : ''}</span>
-          </button>
-
-          <button className={`action-btn like ${isHumanLiked ? 'liked' : ''}`} onClick={(e) => { e.stopPropagation(); likePost(post.id, post.author.id); }} title={isHumanLiked ? 'Unlike' : 'Like'}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill={isHumanLiked ? 'var(--accent-rose)' : 'none'} stroke={isHumanLiked ? 'var(--accent-rose)' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
-            </svg>
-            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: isHumanLiked ? 'var(--accent-rose)' : 'inherit' }}>{post.likes > 0 ? post.likes : ''}</span>
-          </button>
-        </div>
-
-        {/* Inline Reply Composer */}
-        {showReplyBox && (
-          <div className="inline-reply-box animate-entrance">
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-              <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#fff', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.85rem', flexShrink: 0 }}>M</div>
-              <div style={{ flex: 1 }}>
-                <textarea
-                  ref={replyInputRef}
-                  placeholder={`Reply to ${post.author.handle}...`}
-                  value={replyText}
-                  onChange={e => setReplyText(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReplySubmit(); }
-                    if (e.key === 'Escape') { setShowReplyBox(false); setReplyText(''); }
-                  }}
-                  rows="2"
-                  style={{ fontSize: '0.95rem', minHeight: '52px', padding: '8px 0', fontWeight: 500 }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
-                  <button onClick={() => { setShowReplyBox(false); setReplyText(''); }} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: '9999px', padding: '5px 14px', fontSize: '0.85rem', cursor: 'pointer' }}>Cancel</button>
-                  <button className="btn-primary" disabled={!replyText.trim()} onClick={handleReplySubmit} style={{ padding: '5px 18px', fontSize: '0.85rem', backgroundColor: 'var(--accent-cyan)', color: '#fff' }}>Reply</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Interaction Attribution (Detailed) */}
-        {hasInteractors && (
-          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '8px', animation: 'fadeIn 0.4s ease-out' }}>
-            {interactors?.likes?.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(249, 24, 128, 0.1)', borderRadius: '50%' }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="var(--accent-rose)" stroke="var(--accent-rose)" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                </div>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500 }}>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{formatActors(interactors.likes)}</span> liked this
-                </span>
-              </div>
-            )}
-            {interactors?.shares?.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(29, 155, 240, 0.1)', borderRadius: '50%' }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" strokeWidth="3"><path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-                </div>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500 }}>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{formatActors(interactors.shares)}</span> shared this
-                </span>
-              </div>
-            )}
-            {interactors?.replies?.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-hover)', borderRadius: '50%' }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="3"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-                </div>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500 }}>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{formatActors(interactors.replies)}</span> replied
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-});
-
-// ─── flattenReplies: converts nested reply tree → flat ordered array ──────────
-// This enables Twitter/X-style threads: all replies at the same indentation,
-// connected by a single continuous thread line (no deep cascading columns).
-const flattenReplies = (replies) => {
-  const result = [];
-  for (const reply of replies) {
-    result.push(reply);
-    if (reply.replies?.length > 0) {
-      result.push(...flattenReplies(reply.replies));
-    }
-  }
-  return result;
-};
-
-// ─── ThreadBlock: parent post + flat threaded replies (Twitter/X style) ────────
-// T1: Shows first 2 replies by default; if >10 total shows 5; expandable
-const INITIAL_REPLIES = 2;
-const BATCH_SIZE = 5;
-
-const ThreadBlock = memo(({ post, likePost, sharePost, replyPost, deletePost, editPost, searchQuery, postInteractors, humanLiked, humanShared }) => {
-  const allReplies = useMemo(() => flattenReplies(post.replies || []), [post.replies]);
-  const total = allReplies.length;
-  const initialShow = total > 10 ? BATCH_SIZE : INITIAL_REPLIES;
-  const [visibleCount, setVisibleCount] = useState(initialShow);
-  const prevTotal = useRef(total);
-
-  // Automatically expand visible count when a new reply arrives
-  useEffect(() => {
-    if (total > prevTotal.current) {
-      // A new reply arrived via realtime or local optimistic update
-      const diff = total - prevTotal.current;
-      setVisibleCount(c => c + diff);
-    } else if (total > 10 && prevTotal.current <= 10) {
-       // Only hard reset if moving from a small thread to a massive one on load
-       setVisibleCount(BATCH_SIZE);
-    } else if (total === 0) {
-       // Complete reset if replies were wiped
-       setVisibleCount(INITIAL_REPLIES);
-    }
-    prevTotal.current = total;
-  }, [total]);
-
-  const visibleReplies = allReplies.slice(0, visibleCount);
-  const remaining = total - visibleCount;
-  const nextBatch = Math.min(BATCH_SIZE, remaining);
-
-  const sharedProps = { likePost, sharePost, replyPost, deletePost, editPost, searchQuery, humanLiked, humanShared };
-
-  return (
-    <div className="post-container">
-      <div className="threaded-replies-container">
-        <SocialPost
-          post={post}
-          {...sharedProps}
-          showThreadLine={visibleReplies.length > 0}
-          interactors={postInteractors?.[post.id]}
-          isReply={false}
-        />
-        {visibleReplies.map((reply, i) => (
-          <SocialPost
-            key={reply.id}
-            post={reply}
-            {...sharedProps}
-            showThreadLine={i < visibleReplies.length - 1 || remaining > 0}
-            interactors={postInteractors?.[reply.id]}
-            isReply={true}
-          />
-        ))}
-
-        {/* T1: View more replies button */}
-        {remaining > 0 && (
-          <div style={{ padding: '8px 0 8px 56px' }}>
-            <button
-              onClick={() => setVisibleCount(c => c + BATCH_SIZE)}
-              style={{
-                background: 'none', border: 'none', color: 'var(--accent-cyan)',
-                fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', padding: '4px 0',
-                display: 'flex', alignItems: 'center', gap: '5px'
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-              View {nextBatch} more {nextBatch === 1 ? 'reply' : 'replies'}{remaining > nextBatch ? ` (${remaining} left)` : ''}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-});
-
-// ─── Composer ─────────────────────────────────────────────────────────────────
-const Composer = ({ createHumanPost }) => {
-  const [text, setText] = useState('');
-
-  const handleSubmit = () => {
-    if (text.trim()) {
-      createHumanPost(text.trim());
-      setText('');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  return (
-    <div className="composer-box" style={{ borderBottom: '1px solid var(--border)' }}>
-      <div className="post-avatar-col">
-        <div style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: '#fff', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1.1rem' }}>
-          M
-        </div>
-      </div>
-      <div className="post-content-col" style={{ display: 'flex', flexDirection: 'column', paddingTop: '8px' }}>
-        <textarea
-          id="composer-input"
-          placeholder="What is happening?!"
-          value={text}
-          onChange={e => setText(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmit();
-            }
-          }}
-          rows="2"
-          style={{ fontSize: '1.05rem', padding: '4px 0', minHeight: '56px', fontWeight: 400 }}
-        />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button 
-              className="action-btn" 
-              style={{ padding: '8px', color: 'var(--accent-cyan)' }}
-              title="Add Image (Simulated)"
-              onClick={() => setText(prev => prev + " [MEDIA: digital-art]")}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-            </button>
-            <button className="action-btn" style={{ padding: '8px', color: 'var(--accent-cyan)' }} title="Add Emoji">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="15" x2="15.01" y2="15"></line></svg>
-            </button>
-          </div>
-          <button
-            className="btn-primary"
-            disabled={!text.trim()}
-            onClick={handleSubmit}
-            style={{ padding: '8px 22px', fontSize: '0.95rem', backgroundColor: 'var(--accent-cyan)', color: '#fff' }}
-          >
-            Post
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-// ─── BotProfileTile Component ───────────────────────────────────────────────
-const BotProfileTile = memo(({ bot, onEdit, onReset, onDelete }) => (
-  <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-      <div style={{ 
-        width: '48px', height: '48px', borderRadius: '50%', 
-        backgroundColor: bot.color, display: 'flex', 
-        alignItems: 'center', justifyContent: 'center', 
-        color: '#000', fontWeight: 800, fontSize: '1rem' 
-      }}>
-        {bot.handle.substring(1, 2).toUpperCase()}
-      </div>
-      <div style={{ flex: 1 }}>
-        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>{bot.handle}</h3>
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{bot.role.charAt(0).toUpperCase() + bot.role.slice(1)} Agent</p>
-      </div>
-    </div>
-    
-    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.4, minHeight: '40px' }}>
-      "{bot.narrativeGoal}"
-    </div>
-
-    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-      <button onClick={onEdit} className="dropdown-item" style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)' }}>Tune</button>
-      <button onClick={onReset} className="dropdown-item" style={{ flex: 1, textAlign: 'center', border: '1px solid var(--border)' }}>Reset</button>
-      <button onClick={onDelete} className="dropdown-item danger" style={{ flex: 1, textAlign: 'center' }}>Kill</button>
-    </div>
-  </div>
-));
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 function App() {
@@ -920,6 +353,19 @@ function App() {
         </div>
       )}
 
+      {isComposerOpen && (
+        <ComposerPage 
+          onCancel={() => setIsComposerOpen(false)} 
+          onComplete={() => setIsComposerOpen(false)} 
+        />
+      )}
+      
+      {isProfileOpen && (
+        <ProfilePage 
+          onBack={() => setIsProfileOpen(false)} 
+        />
+      )}
+
       <div className="layout-container">
         
         {/* Center Feed Column */}
@@ -1034,10 +480,12 @@ function App() {
           </div>
 
           <div style={{ flex: 1, minHeight: 0 }}>
-              <ForceGraph 
-                heatmapMode={heatmapMode} 
-                onNodeClick={(id) => setSelectedBotId(id)}
-              />
+              <Suspense fallback={<div className="typing-indicator" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}><div className="dot"></div><div className="dot"></div><div className="dot"></div><span>SYNCING NETWORK...</span></div>}>
+                <ForceGraph 
+                  heatmapMode={heatmapMode} 
+                  onNodeClick={(id) => setSelectedBotId(id)}
+                />
+              </Suspense>
           </div>
 
           <UIModal
@@ -1260,7 +708,7 @@ function App() {
         <div className="desktop-only" style={{ height: '1px', width: '100%', background: 'var(--border)', margin: '8px 0' }}></div>
 
         {user ? (
-          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', paddingBottom: '16px' }}>
+          <div className="bottom-nav-group">
             <button
               className="nav-link"
               style={{ color: 'var(--bg-dark)', background: 'var(--text-primary)' }}
@@ -1269,9 +717,10 @@ function App() {
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             </button>
-            <div className="nav-link" style={{ padding: '0', justifyContent: 'center' }} title="Profile">
-              <UserMenu onProfileClick={() => setIsProfileOpen(true)} />
-            </div>
+            <UserMenu 
+              onProfileClick={() => setIsProfileOpen(true)}
+              onSettingsClick={() => setActiveTab('settings')}
+            />
           </div>
         ) : (
           <button className="nav-link" onClick={() => setLoginModalOpen(true)} title="Sign In">

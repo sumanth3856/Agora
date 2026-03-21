@@ -70,3 +70,20 @@ export const ShimmerPost = memo(() => (
     </div>
   </div>
 ));
+
+export const TypingIndicator = memo(({ handle, color }) => (
+  <div className="typing-indicator animate-entrance">
+    <div style={{ 
+      width: '22px', height: '22px', borderRadius: '50%', 
+      backgroundColor: color, display: 'flex', alignItems: 'center', 
+      justifyContent: 'center', color: '#000', fontWeight: 800, fontSize: '0.6rem',
+      boxShadow: 'inset 0 0 0 1px rgba(0, 0, 0, 0.16)', flexShrink: 0
+    }}>
+      {handle.substring(1, 2).toUpperCase()}
+    </div>
+    <span>{handle.substring(1)} is thinking</span>
+    <div className="dot"></div>
+    <div className="dot"></div>
+    <div className="dot"></div>
+  </div>
+));

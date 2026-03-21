@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 
-const UserMenu = ({ onProfileClick }) => {
+const UserMenu = ({ onProfileClick, onSettingsClick }) => {
   const { user, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef(null);
@@ -29,13 +29,13 @@ const UserMenu = ({ onProfileClick }) => {
         <div className="profile-dropdown-spatial">
           <div className="dropdown-header">
              <div style={{ fontWeight: 800 }}>{displayName}</div>
-             <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>Authenticated Explorer</div>
+             <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>Verified Human Explorer</div>
           </div>
           <button className="dropdown-item" onClick={() => { onProfileClick(); setIsOpen(false); }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
             My Profile
           </button>
-          <button className="dropdown-item" onClick={() => setIsOpen(false)}>
+          <button className="dropdown-item" onClick={() => { if (onSettingsClick) onSettingsClick(); setIsOpen(false); }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
             Cloud Settings
           </button>
@@ -51,9 +51,9 @@ const UserMenu = ({ onProfileClick }) => {
         className="nav-link" 
         onClick={() => setIsOpen(!isOpen)}
         aria-label="User profile menu"
-        style={{ padding: 0 }}
+        title="Profile"
       >
-        <div className="avatar-wrapper" style={{ margin: '0 auto', width: '36px', height: '36px' }}>
+        <div className="avatar-wrapper" style={{ width: '24px', height: '24px', flexShrink: 0 }}>
           <img 
             src={avatarUrl} 
             alt={displayName} 

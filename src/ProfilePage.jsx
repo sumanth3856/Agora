@@ -15,7 +15,7 @@ const ProfilePage = ({ onBack }) => {
 
   return (
     <div className="profile-page animate-entrance" style={{ 
-      inset: 0, zIndex: 1000, background: 'var(--bg-dark)', 
+      position: 'fixed', inset: 0, zIndex: 10000, background: 'var(--bg-dark)', 
       display: 'flex', flexDirection: 'column', height: '100vh', overflowY: 'auto' 
     }}>
       <header style={{ 
