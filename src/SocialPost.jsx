@@ -115,69 +115,75 @@ const SocialPost = memo(({
   const isHumanShared = useMemo(() => humanShared?.has(post.id), [humanShared, post.id]);
 
   return (
-    <div className="post-card animate-entrance">
-      <div className="post-avatar-col">
-        <div style={{ 
-          width: '44px', height: '44px', borderRadius: '50%', 
-          backgroundColor: post.author.color,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#000', fontWeight: 700, fontSize: '1.1rem',
-          flexShrink: 0
-        }}>
-          {post.author.handle.substring(1, 2).toUpperCase()}
-        </div>
-        {showThreadLine && <div className="thread-line"></div>}
-      </div>
-
-      <div className="post-content-col" style={{ paddingBottom: '8px' }}>
-        {isReply && post.replyToHandle && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5">
-              <polyline points="15 14 9 8 15 2" />
-              <path d="M9 8H19a2 2 0 0 1 2 2v7" />
-            </svg>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Replying to{' '}
-              <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>{post.replyToHandle}</span>
-            </span>
+    <div className="post-card animate-entrance" style={{ flexDirection: 'column', gap: '12px' }}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+        <div style={{ position: 'relative' }}>
+          <div style={{ 
+            width: '44px', height: '44px', borderRadius: '50%', 
+            backgroundColor: post.author.color,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#000', fontWeight: 700, fontSize: '1.1rem',
+            flexShrink: 0
+          }}>
+            {post.author.handle.substring(1, 2).toUpperCase()}
           </div>
-        )}
+          {/* Thread line handling for new layout: we preserve the tag but hide it to avoid layout issues unless required. */}
+          {showThreadLine && <div className="thread-line" style={{ display: 'none' }}></div>}
+        </div>
 
-        {onViewInThread && (
-          <button
-            onClick={onViewInThread}
-            style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', padding: '0 0 4px 0', textAlign: 'left' }}
-          >
-            ⤷ View in thread
-          </button>
-        )}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>
+              {isOwn ? 'Me' : post.author.handle.substring(1)}
+            </span>
+            {!isOwn && <span className="agent-badge" style={{ fontSize: '0.65rem', padding: '2px 6px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px' }}>Agent</span>}
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{post.author.handle}</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>·</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{getRelativeTime(post.timestamp)}</span>
+            {post.edited && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic' }}>(edited)</span>}
+          </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>
-            {post.author.handle.substring(1)}
-          </span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>{post.author.handle}</span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>·</span>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>{getRelativeTime(post.timestamp)}</span>
-          {post.edited && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic' }}>(edited)</span>}
-
-          {isOwn && (
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-              <button 
-                 onClick={() => { setEditText(post.text); setIsEditing(!isEditing); }} 
-                 style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '5px' }}
-              >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
-              </button>
-              <button 
-                 onClick={(e) => { e.stopPropagation(); setShowDeleteModal(true); }} 
-                 style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', opacity: 0.8, cursor: 'pointer', padding: '5px' }}
-              >
-                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-              </button>
+          {isReply && post.replyToHandle && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5">
+                <polyline points="15 14 9 8 15 2" />
+                <path d="M9 8H19a2 2 0 0 1 2 2v7" />
+              </svg>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Replying to{' '}
+                <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>{post.replyToHandle}</span>
+              </span>
             </div>
           )}
+
+          {onViewInThread && (
+            <button
+              onClick={onViewInThread}
+              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', padding: '0 0 4px 0', textAlign: 'left' }}
+            >
+              ⤷ View in thread
+            </button>
+          )}
         </div>
+
+        {isOwn && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+            <button 
+                onClick={() => { setEditText(post.text); setIsEditing(!isEditing); }} 
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '5px' }}
+            >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+            </button>
+            <button 
+                onClick={(e) => { e.stopPropagation(); setShowDeleteModal(true); }} 
+                style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', opacity: 0.8, cursor: 'pointer', padding: '5px' }}
+            >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+            </button>
+          </div>
+        )}
+      </div>
+      <div style={{ paddingBottom: '8px', width: '100%', marginTop: '4px' }}>
 
         <UIModal 
           isOpen={showDeleteModal}

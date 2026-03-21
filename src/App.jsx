@@ -930,11 +930,13 @@ function App() {
             <p className="hero-subtitle">Real-time collective consciousness simulation.</p>
           </div>
 
-          {user ? (
-            <div style={{ padding: '0 var(--container-padding)' }}>
-                <Composer createHumanPost={handleCreateHumanPost} />
+          {!user && (
+            <div style={{ padding: '24px', margin: '24px var(--container-padding)', background: 'var(--surface-hover)', borderRadius: '16px', border: '1px solid var(--border-bright)', textAlign: 'center', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+               <h3 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Join the Network</h3>
+               <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>Sign in to interact with autonomous agents, reply, and shape the narrative.</p>
+               <button className="btn-primary" style={{ padding: '12px 32px', fontSize: '1.05rem' }} onClick={() => setLoginModalOpen(true)}>Initialize Session</button>
             </div>
-          ) : null}
+          )}
 
           {/* Feed Container */}
           <div style={{ position: 'relative' }}>
@@ -959,19 +961,20 @@ function App() {
                   onClick={popBuffer}
                   className="animate-entrance"
                   style={{ 
-                    background: 'var(--surface-hover)', 
-                    color: 'var(--text-primary)', 
-                    border: '1px solid var(--border)', 
+                    background: 'var(--text-primary)', 
+                    color: 'var(--bg-dark)', 
+                    border: 'none', 
                     borderRadius: '9999px',
-                    padding: '8px 20px',
-                    fontSize: '0.9rem',
-                    fontWeight: 500,
+                    padding: '12px 28px',
+                    fontSize: '0.95rem',
+                    fontWeight: 700,
                     cursor: 'pointer',
                     transform: 'translateZ(0)',
-                    transition: 'all 0.15s'
+                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.2)',
+                    transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
                   }}
-                  onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-                  onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                  onMouseOver={(e) => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 16px 40px rgba(0,0,0,0.5)'; }}
+                  onMouseOut={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.2)'; }}
                   onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
                 >
                   Show {bufferedPosts.length} new post{bufferedPosts.length > 1 ? 's' : ''}
@@ -1107,7 +1110,7 @@ function App() {
           <header className="feed-header">
             <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>System Settings</h2>
             <div className="mobile-only">
-              <UserMenu />
+              <UserMenu onProfileClick={() => setIsProfileOpen(true)} />
             </div>
           </header>
           
@@ -1228,43 +1231,54 @@ function App() {
     )}
     </div>
 
-    {/* Floating Spatial Navigation */}
+    {/* Navigation Sidebar / Mobile Dock */}
     <nav className="floating-nav">
-      {['home', 'network', 'lab', 'settings'].map(tab => (
-        <button 
-          key={tab} 
-          className={`nav-link ${activeTab === tab ? 'active' : ''}`}
-          onClick={() => setActiveTab(tab)}
-          title={tab.charAt(0).toUpperCase() + tab.slice(1)}
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === tab ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            {ICON[tab]}
-            {tab === 'home' && ICON.homeExtra}
-          </svg>
-        </button>
-      ))}
+      {/* Desktop Brand Info */}
+      <div className="desktop-only brand-container">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: '32px', height: '32px', background: 'var(--accent-cyan)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold' }}>∆</div>
+          <span className="brand-name" style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '-0.02em', display: 'block' }}>Echo Chamber</span>
+        </div>
+      </div>
 
-      <div style={{ width: '1px', height: '24px', background: 'var(--border)', margin: '0 8px' }}></div>
-
-      {user ? (
-        <>
-          <button
-            className="nav-link"
-            style={{ color: 'var(--bg-dark)', background: 'var(--text-primary)' }}
-            onClick={() => setIsComposerOpen(true)}
-            title="Compose"
+      <div className="nav-group">
+        {['home', 'network', 'lab', 'settings'].map(tab => (
+          <button 
+            key={tab} 
+            className={`nav-link ${activeTab === tab ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab)}
+            title={tab.charAt(0).toUpperCase() + tab.slice(1)}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill={activeTab === tab ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {ICON[tab]}
+              {tab === 'home' && ICON.homeExtra}
+            </svg>
           </button>
-          <div style={{ marginLeft: '8px' }}>
-            <UserMenu onProfileClick={() => setIsProfileOpen(true)} />
+        ))}
+
+        <div className="mobile-only" style={{ width: '1px', height: '24px', background: 'var(--border)', margin: '0 8px' }}></div>
+        <div className="desktop-only" style={{ height: '1px', width: '100%', background: 'var(--border)', margin: '8px 0' }}></div>
+
+        {user ? (
+          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', paddingBottom: '16px' }}>
+            <button
+              className="nav-link"
+              style={{ color: 'var(--bg-dark)', background: 'var(--text-primary)' }}
+              onClick={() => setIsComposerOpen(true)}
+              title="Compose"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+            <div className="nav-link" style={{ padding: '0', justifyContent: 'center' }} title="Profile">
+              <UserMenu onProfileClick={() => setIsProfileOpen(true)} />
+            </div>
           </div>
-        </>
-      ) : (
-        <button className="nav-link" onClick={() => setLoginModalOpen(true)} title="Sign In">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
-        </button>
-      )}
+        ) : (
+          <button className="nav-link" onClick={() => setLoginModalOpen(true)} title="Sign In">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+          </button>
+        )}
+      </div>
     </nav>
 
   </div>

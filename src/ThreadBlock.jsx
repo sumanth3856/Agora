@@ -63,7 +63,7 @@ const ThreadBlock = memo(({
         ))}
 
         {remaining > 0 && (
-          <div style={{ padding: '8px 0 8px 56px' }}>
+          <div style={{ padding: '8px 0 8px 0px' }}>
             <button
               onClick={() => setVisibleCount(c => c + BATCH_SIZE)}
               style={{

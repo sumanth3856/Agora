@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }) => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin,
+          // Relies on default Site URL explicitly set in Supabase to avoid mobile localhost loop
         },
       });
       if (error) throw error;

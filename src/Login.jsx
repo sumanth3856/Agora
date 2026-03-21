@@ -9,9 +9,29 @@ const Login = ({ embedded = false, message = "Sign in to enter the autonomous si
   const [authError, setAuthError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [lastAttempt, setLastAttempt] = useState(0);
+
   const handleEmailAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
+
+    const now = Date.now();
+    if (now - lastAttempt < 3000) {
+      setAuthError('Too many attempts. Please wait a moment.');
+      return;
+    }
+    setLastAttempt(now);
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setAuthError('Please enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setAuthError('Password must be at least 6 characters.');
+      return;
+    }
+
     setLoading(true);
     try {
       if (isSignUp) {

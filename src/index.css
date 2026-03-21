@@ -273,27 +273,64 @@ h1, h2, h3, h4 {
   width: 100%;
   display: flex;
   justify-content: center;
-  padding-bottom: 120px; /* Space for floating nav */
+  padding-left: 280px; /* Space for left sidebar */
+  padding-bottom: 0;
 }
 
-/* Floating Navigation Dock (Spatial UI) */
+@media (max-width: 1050px) {
+  .layout-container {
+    padding-left: 0;
+    padding-bottom: 120px;
+  }
+}
+
+/* Left Sidebar Navigation (Spatial UI) */
 .floating-nav {
   position: fixed;
-  bottom: 32px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 280px;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 9999px;
-  background: rgba(10, 10, 10, 0.75);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  padding: 32px 24px;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
   z-index: 9999;
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (max-width: 1050px) {
+  .floating-nav {
+    top: auto;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: auto;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+    background: rgba(10, 10, 10, 0.75);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 8px 16px;
+  }
+  .brand-container { display: none; }
+  .nav-group { flex-direction: row; gap: 8px; }
+  .nav-link {
+    width: 48px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .nav-link::after { display: none; }
+  .nav-link:hover { transform: scale(1.1); }
+  .nav-link.active { border-left: none; background: var(--text-primary); color: var(--bg-dark); }
 }
 
 @media (max-width: 768px) {
@@ -307,7 +344,7 @@ h1, h2, h3, h4 {
 /* Center Feed - Full Bleed Context */
 .main-feed {
   width: 100%;
-  max-width: 720px; /* Optimal reading width, but feels vast due to lack of absolute borders */
+  max-width: 860px; /* Widened reading width */
   margin: 0 auto;
   min-width: 0;
   min-height: 100vh;
@@ -332,31 +369,35 @@ h1, h2, h3, h4 {
 
 .brand-container {
   padding: 8px;
-  margin-bottom: 24px;
+  margin-bottom: 32px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .brand-name {
-  display: none; /* Hide brand name in slim rail */
+  display: block; 
 }
 
 .nav-group {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 8px;
   width: 100%;
+  flex: 1;
 }
 
 .nav-link {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 48px;
+  justify-content: flex-start;
+  width: 100%;
   height: 48px;
-  border-radius: 50%;
+  border-radius: 12px;
+  padding: 0 16px;
+  gap: 16px;
   color: var(--text-secondary);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   cursor: pointer;
@@ -365,15 +406,23 @@ h1, h2, h3, h4 {
   position: relative;
 }
 
+.nav-link::after {
+  content: attr(title);
+  font-size: 1.1rem;
+  font-weight: 600;
+  display: block;
+}
+
 .nav-link:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.1);
-  transform: scale(1.05);
+  background: rgba(255, 255, 255, 0.05);
+  transform: translateX(4px);
 }
 
 .nav-link.active {
-  color: var(--bg-dark);
-  background: var(--text-primary);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--accent-cyan);
 }
 
 .analytics-trigger {
@@ -922,13 +971,15 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .modal-content {
-  background: #0a0a0a;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  width: 90%;
-  max-width: 500px;
-  padding: 32px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+  background: var(--bg-card);
+  border: 1px solid var(--border-bright);
+  border-radius: 28px;
+  width: 100%;
+  max-width: 480px;
+  padding: 40px !important;
+  position: relative;
+  box-shadow: 0 40px 80px rgba(0, 0, 0, 0.4), 0 16px 32px rgba(0,0,0,0.2);
+  transform: translateZ(0); /* Hardware acceleration */
   animation: modalSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
 }
